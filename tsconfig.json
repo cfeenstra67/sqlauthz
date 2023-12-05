@@ -1,0 +1,23 @@
+{
+    "ts-node": {
+        "swc": true
+    },
+    "compilerOptions": {
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "declaration": true,
+        "emitDecoratorMetadata": true,
+        "experimentalDecorators": true,
+        "allowSyntheticDefaultImports": true,
+        "target": "ESNext",
+        "sourceMap": true,
+        "incremental": false,
+        "skipLibCheck": false,
+        "strict": true,
+        "noImplicitAny": false,
+        "forceConsistentCasingInFileNames": false,
+        "noFallthroughCasesInSwitch": true,
+        "esModuleInterop": true,
+        "noUncheckedIndexedAccess": true
+    }
+}
