@@ -238,7 +238,7 @@ export function factorOrClauses(clause: Clause): Clause[] {
         factorOrClauses(subClause)
       );
 
-      return arrayProduct(subOrs).map((subClauses) => ({
+      return Array.from(arrayProduct(subOrs)).map((subClauses) => ({
         type: 'and',
         clauses: subClauses
       }));

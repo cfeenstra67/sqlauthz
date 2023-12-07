@@ -1,4 +1,4 @@
-import { SQLSchema, SQLTableMetadata, SQLUser } from "./sql.js";
+import { Permission, SQLSchema, SQLTableMetadata, SQLUser } from "./sql.js";
 
 export interface SQLEntities {
   users: SQLUser[];
@@ -6,6 +6,24 @@ export interface SQLEntities {
   tables: SQLTableMetadata[];
 }
 
+export interface SQLBackendContext {
+  setupQuery?: string;
+  teardownQuery?: string;
+  transactionStartQuery?: string;
+  transactionCommitQuery?: string;
+  removeAllPermissionsFromUserQuery: (user: SQLUser) => string;
+}
+
 export interface SQLBackend {
-  fetchEntities(): Promise<SQLEntities>;
+  setup: () => Promise<void>;
+
+  teardown: () => Promise<void>;
+
+  fetchEntities: () => Promise<SQLEntities>;
+
+  execute: (query: string) => Promise<void>;
+
+  getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
+
+  compileGrantQuery: (permission: Permission) => string;
 }

@@ -16,12 +16,21 @@ export interface ConvertPermissionError {
 
 export type ConvertPermissionResult = ConvertPermissionSuccess | ConvertPermissionError;
 
-function simpleEvaluator(
-  getValue: (value: Value) => any
-): EvaluateClauseArgs['evaluate'] {
+interface SimpleEvaluatorArgs {
+  variableName: string;
+  getValue: (value: Value) => any;
+}
+
+function simpleEvaluator({
+  variableName,
+  getValue,
+}: SimpleEvaluatorArgs): EvaluateClauseArgs['evaluate'] {
   const func: EvaluateClauseArgs['evaluate'] = (expr) => {
+    if (expr.type === 'column' && expr.value === variableName) {
+      return { type: 'success', result: true }
+    }
     if (expr.type === 'column') {
-      return { type: 'error', errors: ['Result must be an expression or value'] };
+      return { type: 'error', errors: [`${variableName}: invalid reference: ${expr.value}`] };
     }
     if (expr.type === 'value') {
       return func({
@@ -34,7 +43,7 @@ function simpleEvaluator(
       });
     }
     if (expr.operator !== 'Eq') {
-      return { type: 'error', errors: [`Unsupported operator: ${expr.operator}`] }
+      return { type: 'error', errors: [`${variableName}: unsupported operator: ${expr.operator}`] }
     }
     if (expr.values[0].type === 'value' && expr.values[1].type === 'value') {
       return { type: 'success', result: expr.values[0].value === expr.values[1].value };
@@ -72,65 +81,77 @@ function simpleEvaluator(
 }
 
 function userEvaluator(user: SQLUser): EvaluateClauseArgs['evaluate'] {
-  return simpleEvaluator((value) => {
-    if (value.type === 'value') {
-      return value.value;
+  return simpleEvaluator({
+    variableName: 'actor',
+    getValue: (value) => {
+      if (value.type === 'value') {
+        return value.value;
+      }
+      if (value.value === '_this' || value.value === '_this.name') {
+        return user.name;
+      }
+      throw new ValidationError(`actor: invalid user field: ${value.value}`);
     }
-    if (value.value === '_this' || value.value === '_this.name') {
-      return user.name;
-    }
-    throw new ValidationError(`Invalid user field: ${value.value}`);
   });
 }
 
 function tableEvaluator(table: SQLTableMetadata): EvaluateClauseArgs['evaluate'] {
-  return simpleEvaluator((value) => {
-    if (value.type === 'value') {
-      return value.value;
+  return simpleEvaluator({
+    variableName: 'resource',
+    getValue: (value) => {
+      if (value.type === 'value') {
+        return value.value;
+      }
+      if (value.value === '_this') {
+        return formatTableName(table);
+      }
+      if (value.value === '_this.name') {
+        return table.name;
+      }
+      if (value.value === '_this.schema') {
+        return table.schema;
+      }
+      if (value.value === '_this.type') {
+        return table.type;
+      }
+      throw new ValidationError(`resource: invalid table field: ${value.value}`);
     }
-    if (value.value === '_this') {
-      return formatTableName(table);
-    }
-    if (value.value === '_this.name') {
-      return table.name;
-    }
-    if (value.value === '_this.schema') {
-      return table.schema;
-    }
-    if (value.value === '_this.type') {
-      return table.type;
-    }
-    throw new ValidationError(`Invalid table field: ${value.value}`);
   });
 }
 
 function schemaEvaluator(schema: SQLSchema): EvaluateClauseArgs['evaluate'] {
-  return simpleEvaluator((value) => {
-    if (value.type === 'value') {
-      return value.value;
+  return simpleEvaluator({
+    variableName: 'resource',
+    getValue: (value) => {
+      if (value.type === 'value') {
+        return value.value;
+      }
+      if (value.value === '_this' || value.value === '_this.name') {
+        return schema.name;
+      }
+      if (value.value === '_this.type') {
+        return schema.type;
+      }
+      throw new ValidationError(`resource: invalid schema field: ${value.value}`);
     }
-    if (value.value === '_this' || value.value === '_this.name') {
-      return schema.name;
-    }
-    if (value.value === '_this.type') {
-      return schema.type;
-    }
-    throw new ValidationError(`Invalid schema field: ${value.value}`);
   });
 }
 
 function permissionEvaluator(permission: string): EvaluateClauseArgs['evaluate'] {
-  return simpleEvaluator((value) => {
-    if (value.type === 'value' && typeof value.value === 'string') {
-      return value.value.toUpperCase();
+  return simpleEvaluator({
+    variableName: 'action',
+    getValue: (value) => {
+      if (value.type === 'value' && typeof value.value === 'string') {
+        return value.value.toUpperCase();
+      }
+      if (value.type === 'value') {
+        return value.value;
+      }
+      if (value.value === '_this' || value.value === '_this.name') {
+        return permission.toUpperCase();
+      }
+      throw new ValidationError(`action: invalid permission field: ${value.value}`);
     }
-    if (value.type === 'value') {
-      return value.value;
-    }
-    if (value.value === '_this' || value.value === '_this.name') {
-      return permission.toUpperCase();
-    }
-    throw new ValidationError(`Invalid permission field: ${value.value}`);
   });
 }
 
@@ -285,6 +306,21 @@ export async function parsePermissions({
     type: 'success',
     permissions
   };
+}
+
+export function deduplicatePermissions(permissions: Permission[]): Permission[] {
+  const permissionsByKey: Record<string, Permission[]> = {};
+  for (const permission of permissions) { 
+    let key: string;
+    if (permission.type === 'schema') {
+      key = [permission.type, permission.privilege, permission.user, permission.schema.name].join(',');
+    } else {
+      key = [permission.type, permission.privilege, permission.user, formatTableName(permission.table)].join(',');
+    }
+    permissionsByKey[key] ??= [];
+    permissionsByKey[key]!.push(permission);
+  }
+  return Object.values(permissionsByKey).map((permissions) => permissions[0]!);
 }
 
 class ValidationError extends Error {
