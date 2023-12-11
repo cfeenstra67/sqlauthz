@@ -1,9 +1,10 @@
-import { Permission, SQLSchema, SQLTableMetadata, SQLUser } from "./sql.js";
+import { Permission, SQLRowLevelSecurityPolicy, SQLSchema, SQLTableMetadata, SQLUser } from "./sql.js";
 
 export interface SQLEntities {
   users: SQLUser[];
   schemas: SQLSchema[];
   tables: SQLTableMetadata[];
+  rlsPolicies: SQLRowLevelSecurityPolicy[];
 }
 
 export interface SQLBackendContext {
@@ -11,7 +12,8 @@ export interface SQLBackendContext {
   teardownQuery?: string;
   transactionStartQuery?: string;
   transactionCommitQuery?: string;
-  removeAllPermissionsFromUserQuery: (user: SQLUser) => string;
+  removeAllPermissionsFromUsersQueries: (users: SQLUser[], entities: SQLEntities) => string[];
+  compileGrantQueries: (permissions: Permission[], entities: SQLEntities) => string[];
 }
 
 export interface SQLBackend {
@@ -24,6 +26,4 @@ export interface SQLBackend {
   execute: (query: string) => Promise<void>;
 
   getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
-
-  compileGrantQuery: (permission: Permission) => string;
 }

@@ -42,11 +42,11 @@ export const TrueClause = { type: 'and', clauses: [] } as const satisfies AndCla
 
 export const FalseClause = { type: 'or', clauses: [] } as const satisfies OrClause;
 
-function isTrueClause(clause: Clause): clause is AndClause & { clauses: [] } {
+export function isTrueClause(clause: Clause): clause is AndClause & { clauses: [] } {
   return clause.type === 'and' && clause.clauses.length === 0;
 }
 
-function isFalseClause(clause: Clause): clause is OrClause & { clauses: [] } {
+export function isFalseClause(clause: Clause): clause is OrClause & { clauses: [] } {
   return clause.type === 'or' && clause.clauses.length === 0;
 }
 
@@ -70,28 +70,70 @@ export function mapClauses(
       clause: subClause
     });
   }
+  if (clause.type === 'expression') {
+    const newValues = clause.values.map((value) =>
+      func(value)
+    ) as [Value, Value];
+    return func({
+      type: 'expression',
+      operator: clause.operator,
+      values: newValues
+    })
+  }
   return func(clause);
 }
 
-export function *iterateClauses(clause: Clause): Generator<Clause> {
-  if (clause.type === 'and' || clause.type === 'or') {
-    for (const subClause of clause.clauses) {
-      for (const subSubClause of iterateClauses(subClause)) {
-        yield subSubClause;
-      }
+function clausesEqual(clause1: Clause, clause2: Clause): boolean {
+  if (clause1.type !== clause2.type) {
+    return false;
+  }
+  if ((clause1.type === 'and' && clause2.type === 'and') || (clause1.type === 'or' && clause2.type === 'or')) {
+    const deduped1 = deduplicateClauses(clause1.clauses);
+    const deduped2 = deduplicateClauses(clause2.clauses);
+    return deduped1.length === deduped2.length && deduped1.every((clause, idx) =>
+      clausesEqual(clause, deduped2[idx]!)
+    );
+  }
+  if (clause1.type === 'not' && clause2.type === 'not') {
+    return clausesEqual(clause1.clause, clause2.clause);
+  }
+  if (clause1.type === 'expression' && clause2.type === 'expression') {
+    return (
+      clause1.operator === clause2.operator &&
+      clause1.values.every((value, idx) => clausesEqual(value, clause2.values[idx]!))
+    );
+  }
+  if ((clause1.type === 'value' && clause2.type === 'value') || (clause1.type === 'column' && clause2.type === 'column')) {
+    return clause1.value === clause2.value;
+  }
+  return false;
+}
+
+function deduplicateClauses(clauses: readonly Clause[]): readonly Clause[] {
+  if (clauses.length <= 1) {
+    return clauses;
+  }
+  if (clauses.length === 2) {
+    if (clausesEqual(clauses[0]!, clauses[1]!)) {
+      return [clauses[0]!];
     }
-  } else if (clause.type === 'not') {
-    for (const subSubClause of iterateClauses(clause.clause)) {
-      yield subSubClause;
+    return clauses;
+  }
+  const first = clauses[0]!;
+  const rest = deduplicateClauses(clauses.slice(1));
+  const out: Clause[] = [first];
+  for (const clause of rest) {
+    if (!clausesEqual(first, clause)) {
+      out.push(clause);
     }
   }
-  yield clause;
+  return out;
 }
 
 export function optimizeClause(clause: Clause): Clause {
   if (clause.type === 'and') {
     const outClauses: Clause[] = [];
-    for (const subClause of clause.clauses) {
+    for (const subClause of deduplicateClauses(clause.clauses)) {
       const optimized = optimizeClause(subClause);
       if (isTrueClause(optimized)) {
         continue;
@@ -118,7 +160,7 @@ export function optimizeClause(clause: Clause): Clause {
 
   if (clause.type === 'or') {
     const outClauses: Clause[] = [];
-    for (const subClause of clause.clauses) {
+    for (const subClause of deduplicateClauses(clause.clauses)) {
       const optimized = optimizeClause(subClause);
       if (isTrueClause(optimized)) {
         return TrueClause;
@@ -203,18 +245,18 @@ export function valueToClause(value: unknown): Clause {
       value.operator === 'Assign' ||
       value.operator === 'ForAll' ||
       value.operator === 'Isa' ||
-      value.operator === 'Print' ||
-      value.operator === 'Unify'
+      value.operator === 'Print'
     ) {
       return TrueClause;
     } else {
       const left = valueToClause(value.args[0]) as Value;
       const right = valueToClause(value.args[1]) as Value;
+      const operator = value.operator === 'Unify' ? 'Eq' : value.operator;
 
       // TODO: should ignore some operators
       return {
         type: 'expression',
-        operator: value.operator,
+        operator,
         values: [left, right]
       };
     }
@@ -334,4 +376,75 @@ export function evaluateClause({
   }
 
   return evaluate(clause);
+}
+
+export interface SimpleEvaluatorArgs {
+  variableName: string;
+  getValue: (value: Value) => any;
+}
+
+export function simpleEvaluator({
+  variableName,
+  getValue,
+}: SimpleEvaluatorArgs): EvaluateClauseArgs['evaluate'] {
+  const func: EvaluateClauseArgs['evaluate'] = (expr) => {
+    if (expr.type === 'column' && expr.value === variableName) {
+      return { type: 'success', result: true }
+    }
+    if (expr.type === 'column') {
+      return { type: 'error', errors: [`${variableName}: invalid reference: ${expr.value}`] };
+    }
+    if (expr.type === 'value') {
+      return func({
+        type: 'expression',
+        operator: 'Eq',
+        values: [
+          { type: 'column', value: '_this' },
+          expr
+        ]
+      });
+    }
+    if (expr.operator !== 'Eq') {
+      return { type: 'error', errors: [`${variableName}: unsupported operator: ${expr.operator}`] }
+    }
+    if (expr.values[0].type === 'value' && expr.values[1].type === 'value') {
+      return { type: 'success', result: expr.values[0].value === expr.values[1].value };
+    }
+    const errors: string[] = [];
+    let left: any;
+    let right: any;
+    try {
+      left = getValue(expr.values[0]);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        errors.push(error.message);
+      } else {
+        throw error;
+      }
+    }
+    try {
+      right = getValue(expr.values[1]);
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        errors.push(error.message);
+      } else {
+        throw error;
+      }
+    }
+
+    if (errors.length > 0) {
+      return { type: 'error', errors }
+    };
+
+    return { type: 'success', result: left === right };
+  };
+
+  return func;
+}
+
+export class ValidationError extends Error {
+  constructor(readonly message: string) {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
 }

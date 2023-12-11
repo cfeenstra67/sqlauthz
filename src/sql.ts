@@ -1,4 +1,5 @@
 import { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
+import { Clause } from "./clause.js";
 
 export interface SQLTable {
   type: 'table';
@@ -7,16 +8,25 @@ export interface SQLTable {
 }
 
 export interface SQLTableMetadata extends SQLTable {
+  rlsEnabled: boolean;
   columns: string[];
 }
 
 export interface SQLUser {
+  type: 'user';
   name: string;
 }
 
 export interface SQLSchema {
   type: 'schema';
   name: string;
+}
+
+export interface SQLRowLevelSecurityPolicy {
+  type: 'rls-policy';
+  name: string;
+  table: SQLTable;
+  users: SQLUser[];
 }
 
 export const TablePrivileges = [
@@ -42,6 +52,8 @@ export interface TablePermission extends BasePermission {
   type: 'table';
   table: SQLTable;
   privilege: TablePrivilege;
+  columnClause: Clause;
+  rowClause: Clause;
 }
 
 export interface SchemaPermission extends BasePermission {
@@ -142,14 +154,15 @@ export function constructFullQuery({
         usersToRevoke = Array.from(referencedUsers);
     }
   
-    for (const username of usersToRevoke) {
-      queryParts.push(context.removeAllPermissionsFromUserQuery({ name: username }));
-    }
+    const removeQueries = context.removeAllPermissionsFromUsersQueries(
+      usersToRevoke.map((name) => ({ type: 'user', name })),
+      entities
+    );
+
+    queryParts.push(...removeQueries);
   }
 
-  const grantQueries = permissions.map((permission) =>
-    backend.compileGrantQuery(permission)
-  );
+  const grantQueries = context.compileGrantQueries(permissions, entities);
   queryParts.push(...grantQueries);
 
   if (context.teardownQuery && includeSetupAndTeardown) {

@@ -1,7 +1,7 @@
 import { Oso, Variable } from "oso";
-import { Permission, SQLSchema, SQLTable, SQLTableMetadata, SQLUser, SchemaPrivilege, SchemaPrivileges, TablePrivilege, TablePrivileges, formatTableName } from "./sql.js";
+import { Permission, SQLSchema, SQLTableMetadata, SQLUser, SchemaPrivilege, SchemaPrivileges, TablePermission, TablePrivilege, TablePrivileges, formatTableName } from "./sql.js";
 import { arrayProduct, printQuery } from "./utils.js";
-import { factorOrClauses, valueToClause, evaluateClause, EvaluateClauseArgs, Value } from "./clause.js";
+import { factorOrClauses, valueToClause, evaluateClause, EvaluateClauseArgs, Value, Clause, OrClause, Column, AndClause, mapClauses, optimizeClause, simpleEvaluator, ValidationError } from "./clause.js";
 import { SQLEntities } from "./backend.js";
 
 export interface ConvertPermissionSuccess {
@@ -15,70 +15,6 @@ export interface ConvertPermissionError {
 }
 
 export type ConvertPermissionResult = ConvertPermissionSuccess | ConvertPermissionError;
-
-interface SimpleEvaluatorArgs {
-  variableName: string;
-  getValue: (value: Value) => any;
-}
-
-function simpleEvaluator({
-  variableName,
-  getValue,
-}: SimpleEvaluatorArgs): EvaluateClauseArgs['evaluate'] {
-  const func: EvaluateClauseArgs['evaluate'] = (expr) => {
-    if (expr.type === 'column' && expr.value === variableName) {
-      return { type: 'success', result: true }
-    }
-    if (expr.type === 'column') {
-      return { type: 'error', errors: [`${variableName}: invalid reference: ${expr.value}`] };
-    }
-    if (expr.type === 'value') {
-      return func({
-        type: 'expression',
-        operator: 'Eq',
-        values: [
-          { type: 'column', value: '_this' },
-          expr
-        ]
-      });
-    }
-    if (expr.operator !== 'Eq') {
-      return { type: 'error', errors: [`${variableName}: unsupported operator: ${expr.operator}`] }
-    }
-    if (expr.values[0].type === 'value' && expr.values[1].type === 'value') {
-      return { type: 'success', result: expr.values[0].value === expr.values[1].value };
-    }
-    const errors: string[] = [];
-    let left: any;
-    let right: any;
-    try {
-      left = getValue(expr.values[0]);
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        errors.push(error.message);
-      } else {
-        throw error;
-      }
-    }
-    try {
-      right = getValue(expr.values[1]);
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        errors.push(error.message);
-      } else {
-        throw error;
-      }
-    }
-
-    if (errors.length > 0) {
-      return { type: 'error', errors }
-    };
-
-    return { type: 'success', result: left === right };
-  };
-
-  return func;
-}
 
 function userEvaluator(user: SQLUser): EvaluateClauseArgs['evaluate'] {
   return simpleEvaluator({
@@ -95,15 +31,37 @@ function userEvaluator(user: SQLUser): EvaluateClauseArgs['evaluate'] {
   });
 }
 
-function tableEvaluator(table: SQLTableMetadata): EvaluateClauseArgs['evaluate'] {
-  return simpleEvaluator({
+type TableEvaluatorMatch = {
+  type: 'match';
+  columnClause: Clause;
+  rowClause: Clause;
+}
+
+type TableEvaluatorNoMatch = {
+  type: 'no-match';
+}
+
+type TableEvaluatorError = {
+  type: 'error';
+  errors: string[];
+};
+
+type TableEvaluatorResult =
+  | TableEvaluatorMatch
+  | TableEvaluatorNoMatch
+  | TableEvaluatorError;
+
+function tableEvaluator(table: SQLTableMetadata, clause: Clause): TableEvaluatorResult {
+  const tableName = formatTableName(table);
+  
+  const metaEvaluator = simpleEvaluator({
     variableName: 'resource',
     getValue: (value) => {
       if (value.type === 'value') {
         return value.value;
       }
       if (value.value === '_this') {
-        return formatTableName(table);
+        return tableName;
       }
       if (value.value === '_this.name') {
         return table.name;
@@ -117,6 +75,156 @@ function tableEvaluator(table: SQLTableMetadata): EvaluateClauseArgs['evaluate']
       throw new ValidationError(`resource: invalid table field: ${value.value}`);
     }
   });
+
+  const andParts = clause.type === 'and' ? clause.clauses : [clause];
+
+  const getColumnSpecifier = (column: Column) => {
+    let rest: string;
+    if (column.value.startsWith('_this.')) {
+      rest = column.value.slice('_this.'.length);
+    } else if (column.value.startsWith(tableName + '.')) {
+      rest = column.value.slice((tableName + '.').length);
+    } else {
+      return null;
+    }
+    const restParts = rest.split('.');
+    if (restParts[0] === 'col' && restParts.length === 1) {
+      return { type: 'col' } as const;
+    }
+    if (restParts[0] === 'row' && restParts.length === 2) {
+      return { type: 'row', row: restParts[1]! } as const;
+    }
+    return null;
+  };
+
+  const isColumnClause = (clause: Clause) => {
+    if (clause.type === 'not') {
+      return isColumnClause(clause.clause);
+    }
+    if (clause.type === 'expression') {
+      let colCount = 0;
+      for (const value of clause.values) {
+        if (value.type === 'value') {
+          continue;
+        }
+        const spec = getColumnSpecifier(value);
+        if (spec && spec.type === 'col') {
+          colCount++;
+          continue;
+        }
+        return false;
+      }
+      return colCount > 0;
+    }
+    return false;
+  };
+
+  const isRowClause = (clause: Clause) => {
+    if (clause.type === 'not') {
+      return isRowClause(clause.clause);
+    }
+    if (clause.type === 'expression') {
+      let colCount = 0;
+      for (const value of clause.values) {
+        if (value.type === 'value') {
+          continue;
+        }
+        const spec = getColumnSpecifier(value);
+        if (spec && spec.type === 'row') {
+          colCount++;
+          continue;
+        }
+        return false;
+      }
+      return colCount > 0;
+    }
+    if (clause.type === 'column') {
+      const spec = getColumnSpecifier(clause);
+      return spec && spec.type === 'row';
+    }
+    return false;
+  };
+
+  const metaClauses: Clause[] = [];
+  const colClauses: Clause[] = [];
+  const rowClauses: Clause[] = [];
+  for (const clause of andParts) {
+    if (isColumnClause(clause)) {
+      colClauses.push(clause);
+    } else if (isRowClause(clause)) {
+      rowClauses.push(clause);
+    } else {
+      metaClauses.push(clause);
+    }
+  }
+
+  const rawColClause: Clause =
+    colClauses.length === 1
+    ? colClauses[0]!
+    : { type: 'and', clauses: colClauses };
+  
+  const errors: string[] = [];
+  
+  const columnClause = mapClauses(rawColClause, (clause) => {
+    if (clause.type === 'column') {
+      return { type: 'column', value: 'col' };
+    }
+    if (clause.type === 'value') {
+      if (typeof clause.value !== 'string') {
+        errors.push(
+          `resource: invalid column specifier: ` +
+          `${clause.value}`
+        );
+      } else if (!table.columns.includes(clause.value)) {
+        errors.push(
+          `resource: invalid column for ${tableName}: ${clause.value}`
+        );
+      }
+    }
+    return clause;
+  });
+
+  const rawRowClause: Clause =
+    rowClauses.length === 1
+    ? rowClauses[0]!
+    : { type: 'and', clauses: rowClauses };
+  
+  const rowClause = mapClauses(rawRowClause, (clause) => {
+    if (clause.type === 'column') {
+      let key: string;
+      if (clause.value.startsWith(tableName + '.')) {
+        key = clause.value.slice((tableName + '.row.').length);
+      } else {
+        key = clause.value.slice('_this.row.'.length);
+      }
+      if (!table.columns.includes(key)) {
+        errors.push(
+          `resource: invalid column for ${tableName}: ${key}`
+        );
+      }
+      return { type: 'column', value: key };
+    }
+    return clause;
+  });
+
+  const evalResult = evaluateClause({
+    clause: { type: 'and', clauses: metaClauses },
+    evaluate: metaEvaluator
+  });
+  if (evalResult.type === 'error') {
+    return evalResult;
+  }
+  if (!evalResult.result) {
+    return { type: 'no-match' };
+  }
+  if (errors.length > 0) {
+    return { type: 'error', errors };
+  }
+  return {
+    type: 'match',
+    columnClause,
+    rowClause
+  };
 }
 
 function schemaEvaluator(schema: SQLSchema): EvaluateClauseArgs['evaluate'] {
@@ -228,23 +336,22 @@ export function convertPermission(result: Map<string, unknown>, entities: SQLEnt
     }
 
     if (tablePrivileges.length > 0) {
-      const tables: SQLTable[] = [];
       for (const table of entities.tables) {
-        const result = evaluateClause({ clause: resourceOr, evaluate: tableEvaluator(table) });
+        const result = tableEvaluator(table, resourceOr);
         if (result.type === 'error') {
           errors.push(...result.errors);
-        } else if (result.result) {
-          tables.push({ type: 'table', schema: table.schema, name: table.name });
+        } else if (result.type === 'match') {
+          for (const [user, privilege] of arrayProduct([users, tablePrivileges])) {
+            permissions.push({
+              type: 'table',
+              table: { type: 'table', schema: table.schema, name: table.name },
+              user,
+              privilege,
+              columnClause: result.columnClause,
+              rowClause: result.rowClause
+            })
+          }
         }
-      }
-
-      for (const [user, privilege, table] of arrayProduct([users, tablePrivileges, tables])) {
-        permissions.push({
-          type: 'table',
-          table,
-          privilege,
-          user
-        });
       }
     }
   }
@@ -262,15 +369,17 @@ export function convertPermission(result: Map<string, unknown>, entities: SQLEnt
   };
 }
 
-export interface LoadPermissionsArgs {
+export interface ParsePermissionsArgs {
   oso: Oso;
   entities: SQLEntities;
+  debug?: boolean;
 }
 
 export async function parsePermissions({
   oso,
   entities,
-}: LoadPermissionsArgs): Promise<ConvertPermissionResult> {
+  debug,
+}: ParsePermissionsArgs): Promise<ConvertPermissionResult> {
   const result = oso.queryRule(
     {
      acceptExpression: true
@@ -285,8 +394,10 @@ export async function parsePermissions({
   const errors: string[] = [];
 
   for await (const item of result) {
-    // Debugging
-    console.log('\nQUERY\n', printQuery(item));
+    if (debug) {
+      console.log('\nQUERY\n', printQuery(item));
+    }
+
     const result = convertPermission(item, entities);
     if (result.type === 'success') {
       permissions.push(...result.permissions);
@@ -298,7 +409,7 @@ export async function parsePermissions({
   if (errors.length > 0) {
     return {
       type: 'error',
-      errors
+      errors: Array.from(new Set(errors))
     };
   }
 
@@ -313,19 +424,40 @@ export function deduplicatePermissions(permissions: Permission[]): Permission[] 
   for (const permission of permissions) { 
     let key: string;
     if (permission.type === 'schema') {
-      key = [permission.type, permission.privilege, permission.user, permission.schema.name].join(',');
+      key = [permission.type, permission.privilege, permission.user.name, permission.schema.name].join(',');
     } else {
-      key = [permission.type, permission.privilege, permission.user, formatTableName(permission.table)].join(',');
+      key = [permission.type, permission.privilege, permission.user.name, formatTableName(permission.table)].join(',');
     }
     permissionsByKey[key] ??= [];
     permissionsByKey[key]!.push(permission);
   }
-  return Object.values(permissionsByKey).map((permissions) => permissions[0]!);
-}
 
-class ValidationError extends Error {
-  constructor(readonly message: string) {
-    super(message);
-    Object.setPrototypeOf(this, new.target.prototype);
+  const outPermissions: Permission[] = [];
+  for (const groupedPermissions of Object.values(permissionsByKey)) {
+    const first = groupedPermissions[0]!;
+    const rest = groupedPermissions.slice(1);
+    if (first.type === 'schema') {
+      outPermissions.push(first);
+    } else {
+      const typedRest = rest as TablePermission[];
+      const rowClause = optimizeClause({
+        type: 'or',
+        clauses: [first.rowClause, ...typedRest.map((perm) => perm.rowClause)]
+      });
+      const columnClause = optimizeClause({
+        type: 'or',
+        clauses: [first.columnClause, ...typedRest.map((perm) => perm.columnClause)]
+      });
+      outPermissions.push({
+        type: 'table',
+        user: first.user,
+        table: first.table,
+        privilege: first.privilege,
+        rowClause,
+        columnClause
+      });
+    }
   }
+
+  return outPermissions;
 }

@@ -5,6 +5,7 @@ import url from 'node:url';
 import pg from 'pg';
 import { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
 import { Permission, SQLSchema, SQLTable, SQLTableMetadata, SQLUser } from './sql.js';
+import { Clause, ValidationError, evaluateClause, isTrueClause, simpleEvaluator } from './clause.js';
 
 const ProjectDir = url.fileURLToPath(new URL('.', import.meta.url));
 
@@ -35,17 +36,22 @@ export class PostgresBackend implements SQLBackend {
           pg_catalog.pg_user
       `
     );
-    const tables = await this.client.query<{ schema: string; name: string; }>(
+    const tables = await this.client.query<{
+      schema: string;
+      name: string;
+      rlsEnabled: boolean;
+    }>(
       `
         SELECT
-          table_schema as "schema",
-          table_name as "name"
+          schemaname as "schema",
+          tablename as "name",
+          rowsecurity as "rlsEnabled"
         FROM
-          information_schema.tables
+          pg_tables
         WHERE
-          table_schema != 'information_schema'
-          AND table_schema != 'pg_catalog'
-          AND table_schema != 'pg_toast'
+          schemaname != 'information_schema'
+          AND schemaname != 'pg_catalog'
+          AND schemaname != 'pg_toast'
       `
     );
     const columns = await this.client.query<{ schema: string; table: string; name: string; }>(
@@ -74,6 +80,26 @@ export class PostgresBackend implements SQLBackend {
           AND schema_name != 'pg_toast'
       `
     );
+    const policies = await this.client.query<{
+      schema: string;
+      table: string;
+      name: string;
+      users: string;
+    }>(
+      `
+        SELECT
+          schemaname as "schema",
+          tablename as "table",
+          policyname as "name",
+          roles as "users"
+        FROM
+          pg_policies
+        WHERE
+          schemaname != 'information_schema'
+          AND schemaname != 'pg_catalog'
+          AND schemaname != 'pg_toast'
+      `
+    );
 
     const tableItems: Record<string, SQLTableMetadata> = {};
     for (const table of tables.rows) {
@@ -82,6 +108,7 @@ export class PostgresBackend implements SQLBackend {
         type: 'table',
         name: table.name,
         schema: table.schema,
+        rlsEnabled: table.rlsEnabled,
         columns: []
       };
     }
@@ -91,10 +118,20 @@ export class PostgresBackend implements SQLBackend {
       tableItems[fullName]!.columns.push(row.name);
     }
 
+    const parseArray = (value: string): string[] => {
+      return value.slice(1, -1).split(',');
+    };
+
     return {
-      users: users.rows,
+      users: users.rows.map((row) => ({ type: 'user', name: row.name })),
       schemas: schemas.rows.map((row) => ({ type: 'schema', name: row.name })),
-      tables: Object.values(tableItems)
+      tables: Object.values(tableItems),
+      rlsPolicies: policies.rows.map((row) => ({
+        type: 'rls-policy',
+        name: row.name,
+        table: { type: 'table', schema: row.schema, name: row.table },
+        users: parseArray(row.users).map((user) => ({ type: 'user', name: user }))
+      }))
     };
   }
 
@@ -155,45 +192,238 @@ export class PostgresBackend implements SQLBackend {
       teardownQuery,
       transactionStartQuery: 'BEGIN;',
       transactionCommitQuery: 'COMMIT;',
-      removeAllPermissionsFromUserQuery: (user) =>
-        `SELECT ${tmpSchema}.revoke_all_from_role('${user.name}');`
+      removeAllPermissionsFromUsersQueries: (users, entities) => {
+        const revokeQueries = users.map((user) =>
+          `SELECT ${tmpSchema}.revoke_all_from_role('${user.name}');`,
+        );
+
+        const userNames = new Set(users.map((user) => user.name));
+
+        const policiesToDrop = entities.rlsPolicies.filter((policy) =>
+          policy.users.some((user) => userNames.has(user.name))
+        );
+        const dropQueries = policiesToDrop.map((policy) =>
+          `DROP POLICY ${this.quoteIdentifier(policy.name)} ` +
+          `ON ${this.quoteTableName(policy.table)};`
+        );
+
+        return revokeQueries.concat(dropQueries);
+      },
+      compileGrantQueries: (permissions, entities) => {
+        const metaByTable = Object.fromEntries(
+          entities.tables.map((table) =>
+            [this.quoteTableName(table), table]
+          )
+        );
+
+        const tablesToAddRlsTo = new Set<string>();
+        for (const perm of permissions) {
+          if (perm.type === 'schema') {
+            continue;
+          }
+          if (isTrueClause(perm.rowClause)) {
+            continue;
+          }
+          const tableName = this.quoteTableName(perm.table);
+          const table = metaByTable[tableName];
+          if (!table) {
+            continue;
+          }
+          if (table.rlsEnabled) {
+            continue;
+          }
+          tablesToAddRlsTo.add(tableName);
+        }
+
+        const rlsQueries = Array.from(tablesToAddRlsTo).flatMap((tableName) => [
+          `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
+          `CREATE POLICY default_access ON ${tableName} AS PERMISSIVE FOR ` +
+          `ALL TO PUBLIC USING (true);`
+        ]);
+
+        const individualGrantQueries = permissions.flatMap((perm) => this.compileGrantQuery(perm, entities))
+
+        return rlsQueries.concat(individualGrantQueries);
+      }
     };
   }
 
-  compileGrantQuery(permission: Permission): string {
+  private evalColumnQuery(clause: Clause, column: string): boolean {
+    const evaluate = simpleEvaluator({
+      variableName: 'col',
+      getValue: (value) => {
+        if (value.type === 'value') {
+          return value.value;
+        }
+        if (value.value === 'col') {
+          return column;
+        }
+        throw new ValidationError(`Invalid clause value: ${value.value}`);
+      }
+    });
+
+    const result = evaluateClause({ clause, evaluate });
+    return result.type === 'success' && result.result;
+  }
+
+  private clauseToSql(clause: Clause): string {
+    if (clause.type === 'and' || clause.type === 'or') {
+      const subClauses = clause.clauses.map((subClause) =>
+        this.clauseToSql(subClause)
+      );
+      return `(${subClauses.join(` ${clause.type} `)})`;
+    }
+    if (clause.type === 'not') {
+      const subClause = this.clauseToSql(clause.clause);
+      return `not ${subClause}`;
+    }
+    if (clause.type === 'expression') {
+      const values = clause.values.map((value) => this.clauseToSql(value));
+      let operator: string;
+      switch (clause.operator) {
+        case 'Eq':
+          operator = '=';
+          break;
+        case 'Gt':
+          operator = '>';
+          break;
+        case 'Lt':
+          operator = '<';
+          break;
+        case 'Geq':
+          operator = '>=';
+          break;
+        case 'Leq':
+          operator = '<=';
+          break;
+        case 'Neq':
+          operator = '!=';
+          break;
+        default:
+          throw new Error(`Unhandled operator: ${clause.operator}`);
+      }
+      return values.join(` ${operator} `);
+    }
+    if (clause.type === 'column') {
+      return this.quoteIdentifier(clause.value);
+    }
+    if (typeof clause.value === 'string') {
+      return `'${clause.value}'`;
+    }
+    return JSON.stringify(clause.value);
+  }
+
+  private compileGrantQuery(permission: Permission, entities: SQLEntities): string[] {
     switch (permission.type) {
       case 'schema':
         switch (permission.privilege) {
           case 'USAGE':
-            return (
+            return [
               `GRANT USAGE ON SCHEMA ${this.quoteSchemaName(permission.schema)} ` +
               `TO ${this.quoteUserName(permission.user)};`
-            );
+            ];
           default:
             throw new Error(`Invalid schema privilege: ${(permission as any).privilege};`);
         }
       case 'table':
+        let columnPart = '';
+        if (!isTrueClause(permission.columnClause)) {
+          const table = entities.tables.filter((table) =>
+            table.schema === permission.table.schema &&
+            table.name === permission.table.name
+          )[0]!;
+          const columnNames = table.columns.filter((column) =>
+            this.evalColumnQuery(permission.columnClause, column)
+          );
+          const colNameList = columnNames.map((col) => this.quoteIdentifier(col));          
+          columnPart = ` (${colNameList.join(', ')})`;
+        }
+
         switch (permission.privilege) {
-          case 'SELECT':
-            return (
-              `GRANT SELECT ON ${this.quoteTableName(permission.table)} ` +
+          case 'SELECT': {
+            const out = [
+              `GRANT SELECT${columnPart} ON ${this.quoteTableName(permission.table)} ` +
               `TO ${this.quoteUserName(permission.user)};`
-            );
-          case 'INSERT':
-            return (
-              `GRANT INSERT ON ${this.quoteTableName(permission.table)} ` +
+            ];
+            if (!isTrueClause(permission.rowClause)) {
+              const policyName = [
+                permission.privilege,
+                permission.table.schema,
+                permission.table.name,
+                permission.user.name
+              ].join('_').toLowerCase();
+
+              out.push(
+                `CREATE POLICY ${policyName} ON ${this.quoteTableName(permission.table)} ` +
+                `AS RESTRICTIVE FOR SELECT TO ${this.quoteUserName(permission.user)} ` +
+                `USING (${this.clauseToSql(permission.rowClause)});`
+              );
+            }
+            return out;
+          }
+          case 'INSERT': {
+            const out = [
+              `GRANT INSERT${columnPart} ON ${this.quoteTableName(permission.table)} ` +
               `TO ${this.quoteUserName(permission.user)};`
-            );
-          case 'UPDATE':
-            return (
-              `GRANT UPDATE ON ${this.quoteTableName(permission.table)} ` +
+            ];
+            if (!isTrueClause(permission.rowClause)) {
+              const policyName = [
+                permission.privilege,
+                permission.table.schema,
+                permission.table.name,
+                permission.user.name
+              ].join('_').toLowerCase();
+
+              out.push(
+                `CREATE POLICY ${policyName} ON ${this.quoteTableName(permission.table)} ` +
+                `AS RESTRICTIVE FOR INSERT TO ${this.quoteUserName(permission.user)} ` +
+                `USING (${this.clauseToSql(permission.rowClause)});`
+              );
+            }
+            return out;
+          }
+          case 'UPDATE': {
+            const out = [
+              `GRANT UPDATE${columnPart} ON ${this.quoteTableName(permission.table)} ` +
               `TO ${this.quoteUserName(permission.user)};`
-            );
-          case 'DELETE':
-            return (
+            ];
+            if (!isTrueClause(permission.rowClause)) {
+              const policyName = [
+                permission.privilege,
+                permission.table.schema,
+                permission.table.name,
+                permission.user.name
+              ].join('_').toLowerCase();
+
+              out.push(
+                `CREATE POLICY ${policyName} ON ${this.quoteTableName(permission.table)} ` +
+                `AS RESTRICTIVE FOR UPDATE TO ${this.quoteUserName(permission.user)} ` +
+                `USING (${this.clauseToSql(permission.rowClause)});`
+              );
+            }
+            return out;
+          }
+          case 'DELETE': {
+            const out = [
               `GRANT DELETE ON ${this.quoteTableName(permission.table)} ` +
               `TO ${this.quoteUserName(permission.user)};`
-            );
+            ];
+            if (!isTrueClause(permission.rowClause)) {
+              const policyName = [
+                permission.privilege,
+                permission.table.schema,
+                permission.table.name,
+                permission.user.name
+              ].join('_').toLowerCase();
+
+              out.push(
+                `CREATE POLICY ${policyName} ON ${this.quoteTableName(permission.table)} ` +
+                `AS RESTRICTIVE FOR DELETE TO ${this.quoteUserName(permission.user)} ` +
+                `USING (${this.clauseToSql(permission.rowClause)});`
+              );
+            }
+            return out;
+          }
           default:
             throw new Error(`Invalid table privilege: ${(permission as any).privilege}`)
         }
