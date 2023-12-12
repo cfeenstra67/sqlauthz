@@ -1,29 +1,41 @@
-import { Permission, SQLRowLevelSecurityPolicy, SQLSchema, SQLTableMetadata, SQLUser } from "./sql.js";
+import {
+	Permission,
+	SQLRowLevelSecurityPolicy,
+	SQLSchema,
+	SQLTableMetadata,
+	SQLUser,
+} from "./sql.js";
 
 export interface SQLEntities {
-  users: SQLUser[];
-  schemas: SQLSchema[];
-  tables: SQLTableMetadata[];
-  rlsPolicies: SQLRowLevelSecurityPolicy[];
+	users: SQLUser[];
+	schemas: SQLSchema[];
+	tables: SQLTableMetadata[];
+	rlsPolicies: SQLRowLevelSecurityPolicy[];
 }
 
 export interface SQLBackendContext {
-  setupQuery?: string;
-  teardownQuery?: string;
-  transactionStartQuery?: string;
-  transactionCommitQuery?: string;
-  removeAllPermissionsFromUsersQueries: (users: SQLUser[], entities: SQLEntities) => string[];
-  compileGrantQueries: (permissions: Permission[], entities: SQLEntities) => string[];
+	setupQuery?: string;
+	teardownQuery?: string;
+	transactionStartQuery?: string;
+	transactionCommitQuery?: string;
+	removeAllPermissionsFromUsersQueries: (
+		users: SQLUser[],
+		entities: SQLEntities,
+	) => string[];
+	compileGrantQueries: (
+		permissions: Permission[],
+		entities: SQLEntities,
+	) => string[];
 }
 
 export interface SQLBackend {
-  setup: () => Promise<void>;
+	setup: () => Promise<void>;
 
-  teardown: () => Promise<void>;
+	teardown: () => Promise<void>;
 
-  fetchEntities: () => Promise<SQLEntities>;
+	fetchEntities: () => Promise<SQLEntities>;
 
-  execute: (query: string) => Promise<void>;
+	execute: (query: string) => Promise<void>;
 
-  getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
+	getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
 }
