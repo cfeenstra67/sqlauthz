@@ -7,7 +7,7 @@
   "scripts": {
     "run-ts": "node --no-warnings --loader ts-node/esm",
     "test": "node --no-warnings --loader ts-node/esm --test $(zsh -c 'echo test/**/*.test.ts')",
-    "check": "biome check --apply src"
+    "check": "biome check --apply src test"
   },
   "keywords": [],
   "author": "",

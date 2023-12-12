@@ -1,11 +1,10 @@
-import assert from 'node:assert';
-import { describe, it } from 'node:test';
-import { Clause, optimizeClause, valueToClause } from '../src/clause.js';
-import { Expression } from 'oso/dist/src/Expression.js';
-import { Variable } from 'oso';
+import assert from "node:assert";
+import { describe, it } from "node:test";
+import { Variable } from "oso";
+import { Expression } from "oso/dist/src/Expression.js";
+import { Clause, optimizeClause, valueToClause } from "../src/clause.js";
 
 describe(valueToClause.name, async () => {
-
   interface TestCase {
     id: string;
     input: unknown;
@@ -14,111 +13,102 @@ describe(valueToClause.name, async () => {
 
   const testCases: TestCase[] = [
     {
-      id: 'expression-1',
-      input: new Expression(
-        'Gt',
-        [new Variable('a'), 2]
-      ),
+      id: "expression-1",
+      input: new Expression("Gt", [new Variable("a"), 2]),
       output: {
-        type: 'expression',
-        operator: 'Gt',
+        type: "expression",
+        operator: "Gt",
         values: [
-          { type: 'column', value: 'a' },
-          { type: 'value', value: 2 }
-        ]
-      }
+          { type: "column", value: "a" },
+          { type: "value", value: 2 },
+        ],
+      },
     },
     {
-      id: 'column-1',
-      input: new Variable('blah'),
+      id: "column-1",
+      input: new Variable("blah"),
       output: {
-        type: 'column',
-        value: 'blah'
-      }
+        type: "column",
+        value: "blah",
+      },
     },
     {
-      id: 'value-boolean-1',
+      id: "value-boolean-1",
       input: false,
       output: {
-        type: 'value',
-        value: false
-      }
+        type: "value",
+        value: false,
+      },
     },
     {
-      id: 'and-1',
-      input: new Expression('And', [
-        new Expression('Neq', [1, 2]),
+      id: "and-1",
+      input: new Expression("And", [
+        new Expression("Neq", [1, 2]),
         true,
-        false
+        false,
       ]),
       output: {
-        type: 'and',
+        type: "and",
         clauses: [
           {
-            type: 'expression',
-            operator: 'Neq',
+            type: "expression",
+            operator: "Neq",
             values: [
-              { type: 'value', value: 1 },
-              { type: 'value', value: 2 }
-            ]
+              { type: "value", value: 1 },
+              { type: "value", value: 2 },
+            ],
           },
           {
-            type: 'value',
-            value: true
+            type: "value",
+            value: true,
           },
           {
-            type: 'value',
-            value: false
-          }
-        ]
-      }
+            type: "value",
+            value: false,
+          },
+        ],
+      },
     },
     {
-      id: 'or-1',
-      input: new Expression('Or', [
-        new Expression('Neq', [1, 2]),
-        true,
-        false
-      ]),
+      id: "or-1",
+      input: new Expression("Or", [new Expression("Neq", [1, 2]), true, false]),
       output: {
-        type: 'or',
+        type: "or",
         clauses: [
           {
-            type: 'expression',
-            operator: 'Neq',
+            type: "expression",
+            operator: "Neq",
             values: [
-              { type: 'value', value: 1 },
-              { type: 'value', value: 2 }
-            ]
+              { type: "value", value: 1 },
+              { type: "value", value: 2 },
+            ],
           },
           {
-            type: 'value',
-            value: true
+            type: "value",
+            value: true,
           },
           {
-            type: 'value',
-            value: false
-          }
-        ]
-      }
+            type: "value",
+            value: false,
+          },
+        ],
+      },
     },
     {
-      id: 'not-1',
-      input: new Expression('Not', [
-        new Expression('Neq', [1, 2]),
-      ]),
+      id: "not-1",
+      input: new Expression("Not", [new Expression("Neq", [1, 2])]),
       output: {
-        type: 'not',
+        type: "not",
         clause: {
-          type: 'expression',
-          operator: 'Neq',
+          type: "expression",
+          operator: "Neq",
           values: [
-            { type: 'value', value: 1 },
-            { type: 'value', value: 2 }
-          ]
-        }
-      }
-    }
+            { type: "value", value: 1 },
+            { type: "value", value: 2 },
+          ],
+        },
+      },
+    },
   ];
 
   for (const testCase of testCases) {
@@ -127,11 +117,9 @@ describe(valueToClause.name, async () => {
       assert.deepEqual(result, testCase.output);
     });
   }
-
 });
 
 describe(optimizeClause.name, async () => {
-
   interface TestCase {
     id: string;
     input: Clause;
@@ -140,36 +128,36 @@ describe(optimizeClause.name, async () => {
 
   const testCases: TestCase[] = [
     {
-      id: 'single-and-1',
-      input: { type: 'and', clauses: [{ type: 'value', value: true }] },
-      output: { type: 'value', value: true }
+      id: "single-and-1",
+      input: { type: "and", clauses: [{ type: "value", value: true }] },
+      output: { type: "value", value: true },
     },
     {
-      id: 'single-or-1',
-      input: { type: 'or', clauses: [{ type: 'value', value: true }] },
-      output: { type: 'value', value: true }
+      id: "single-or-1",
+      input: { type: "or", clauses: [{ type: "value", value: true }] },
+      output: { type: "value", value: true },
     },
     {
-      id: 'not-and-with-dupe-1',
+      id: "not-and-with-dupe-1",
       input: {
-        type: 'not',
+        type: "not",
         clause: {
-          type: 'and',
+          type: "and",
           clauses: [
-            { type: 'column', value: 'blah' },
-            { type: 'column', value: 'blah' },
-            { type: 'value', value: true }
-          ]
-        }
+            { type: "column", value: "blah" },
+            { type: "column", value: "blah" },
+            { type: "value", value: true },
+          ],
+        },
       },
       output: {
-        type: 'or',
+        type: "or",
         clauses: [
-          { type: 'not', clause: { type: 'column', value: 'blah' } },
-          { type: 'not', clause: { type: 'value', value: true } }
-        ]
-      }
-    }
+          { type: "not", clause: { type: "column", value: "blah" } },
+          { type: "not", clause: { type: "value", value: true } },
+        ],
+      },
+    },
   ];
 
   for (const testCase of testCases) {
@@ -178,5 +166,4 @@ describe(optimizeClause.name, async () => {
       assert.deepEqual(result, testCase.output);
     });
   }
-
 });
