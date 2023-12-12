@@ -1,5 +1,5 @@
 {
-  "name": "oso-postgres-rbac",
+  "name": "sqlauthz",
   "type": "module",
   "version": "1.0.0",
   "description": "",

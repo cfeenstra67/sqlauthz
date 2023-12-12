@@ -377,7 +377,7 @@ export class PostgresBackend implements SQLBackend {
               out.push(
                 `CREATE POLICY ${policyName} ON ${this.quoteTableName(permission.table)} ` +
                 `AS RESTRICTIVE FOR INSERT TO ${this.quoteUserName(permission.user)} ` +
-                `USING (${this.clauseToSql(permission.rowClause)});`
+                `WITH CHECK (${this.clauseToSql(permission.rowClause)});`
               );
             }
             return out;
