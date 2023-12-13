@@ -302,7 +302,11 @@ function schemaEvaluator({
       if (value.type === "value") {
         return value.value;
       }
-      if (value.value === "_this" || value.value === "_this.name") {
+      if (
+        value.value === "_this" ||
+        value.value === "_this.name" ||
+        value.value === "_this.schema"
+      ) {
         return schema.name;
       }
       if (value.value === "_this.type") {
