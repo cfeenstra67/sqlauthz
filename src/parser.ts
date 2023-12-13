@@ -1,15 +1,13 @@
 import { Oso, Variable } from "oso";
 import { SQLEntities } from "./backend.js";
 import {
-  AndClause,
   Clause,
   Column,
   EvaluateClauseArgs,
-  OrClause,
   ValidationError,
-  Value,
   evaluateClause,
   factorOrClauses,
+  isTrueClause,
   mapClauses,
   optimizeClause,
   simpleEvaluator,
@@ -43,9 +41,20 @@ export type ConvertPermissionResult =
   | ConvertPermissionSuccess
   | ConvertPermissionError;
 
-function userEvaluator(user: SQLUser): EvaluateClauseArgs["evaluate"] {
+interface UserEvaluatorArgs {
+  user: SQLUser;
+  debug?: boolean;
+}
+
+function userEvaluator({
+  user,
+  debug,
+}: UserEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
+  const variableName = "actor";
+  const errorVariableName = debug ? `user(${user.name})` : variableName;
   return simpleEvaluator({
-    variableName: "actor",
+    variableName,
+    errorVariableName,
     getValue: (value) => {
       if (value.type === "value") {
         return value.value;
@@ -53,7 +62,9 @@ function userEvaluator(user: SQLUser): EvaluateClauseArgs["evaluate"] {
       if (value.value === "_this" || value.value === "_this.name") {
         return user.name;
       }
-      throw new ValidationError(`actor: invalid user field: ${value.value}`);
+      throw new ValidationError(
+        `${errorVariableName}: invalid user field: ${value.value}`,
+      );
     },
   });
 }
@@ -78,14 +89,28 @@ type TableEvaluatorResult =
   | TableEvaluatorNoMatch
   | TableEvaluatorError;
 
-function tableEvaluator(
-  table: SQLTableMetadata,
-  clause: Clause,
-): TableEvaluatorResult {
+interface TableEvaluatorArgs {
+  table: SQLTableMetadata;
+  clause: Clause;
+  debug?: boolean;
+  strict?: boolean;
+}
+
+function tableEvaluator({
+  table,
+  clause,
+  debug,
+  strict,
+}: TableEvaluatorArgs): TableEvaluatorResult {
   const tableName = formatTableName(table);
+  const variableName = "resource";
+  const errorVariableName = debug
+    ? `table(${formatTableName(table)})`
+    : variableName;
 
   const metaEvaluator = simpleEvaluator({
-    variableName: "resource",
+    variableName,
+    errorVariableName,
     getValue: (value) => {
       if (value.type === "value") {
         return value.value;
@@ -103,7 +128,7 @@ function tableEvaluator(
         return table.type;
       }
       throw new ValidationError(
-        `resource: invalid table field: ${value.value}`,
+        `${errorVariableName}: invalid table field: ${value.value}`,
       );
     },
   });
@@ -203,10 +228,12 @@ function tableEvaluator(
     }
     if (clause.type === "value") {
       if (typeof clause.value !== "string") {
-        errors.push(`resource: invalid column specifier: ${clause.value}`);
+        errors.push(
+          `${errorVariableName}: invalid column specifier: ${clause.value}`,
+        );
       } else if (!table.columns.includes(clause.value)) {
         errors.push(
-          `resource: invalid column for ${tableName}: ${clause.value}`,
+          `${errorVariableName}: invalid column for ${tableName}: ${clause.value}`,
         );
       }
     }
@@ -227,7 +254,9 @@ function tableEvaluator(
         key = clause.value.slice("_this.row.".length);
       }
       if (!table.columns.includes(key)) {
-        errors.push(`resource: invalid column for ${tableName}: ${key}`);
+        errors.push(
+          `${errorVariableName}: invalid column for ${tableName}: ${key}`,
+        );
       }
       return { type: "column", value: key };
     }
@@ -237,6 +266,7 @@ function tableEvaluator(
   const evalResult = evaluateClause({
     clause: { type: "and", clauses: metaClauses },
     evaluate: metaEvaluator,
+    strict,
   });
   if (evalResult.type === "error") {
     return evalResult;
@@ -254,9 +284,20 @@ function tableEvaluator(
   };
 }
 
-function schemaEvaluator(schema: SQLSchema): EvaluateClauseArgs["evaluate"] {
+interface SchemaEvaluatorArgs {
+  schema: SQLSchema;
+  debug?: boolean;
+}
+
+function schemaEvaluator({
+  schema,
+  debug,
+}: SchemaEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
+  const variableName = "resource";
+  const errorVariableName = debug ? `schema(${schema.name})` : variableName;
   return simpleEvaluator({
-    variableName: "resource",
+    variableName,
+    errorVariableName,
     getValue: (value) => {
       if (value.type === "value") {
         return value.value;
@@ -268,17 +309,27 @@ function schemaEvaluator(schema: SQLSchema): EvaluateClauseArgs["evaluate"] {
         return schema.type;
       }
       throw new ValidationError(
-        `resource: invalid schema field: ${value.value}`,
+        `${errorVariableName}: invalid schema field: ${value.value}`,
       );
     },
   });
 }
 
-function permissionEvaluator(
-  permission: string,
-): EvaluateClauseArgs["evaluate"] {
+interface PermissionEvaluatorArgs {
+  permission: string;
+  debug?: boolean;
+}
+
+function permissionEvaluator({
+  permission,
+  debug,
+}: PermissionEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
+  const variableName = "action";
+  const errorVariableName = debug ? `permission(${permission})` : variableName;
+
   return simpleEvaluator({
-    variableName: "action",
+    variableName,
+    errorVariableName,
     getValue: (value) => {
       if (value.type === "value" && typeof value.value === "string") {
         return value.value.toUpperCase();
@@ -290,16 +341,30 @@ function permissionEvaluator(
         return permission.toUpperCase();
       }
       throw new ValidationError(
-        `action: invalid permission field: ${value.value}`,
+        `${errorVariableName}: invalid permission field: ${value.value}`,
       );
     },
   });
 }
 
-export function convertPermission(
-  result: Map<string, unknown>,
-  entities: SQLEntities,
-): ConvertPermissionResult {
+export interface ConvertPermissionArgs {
+  result: Map<string, unknown>;
+  entities: SQLEntities;
+  // Does two things right now, might want to split into two args:
+  // - Checks that all fields are valid in all rules
+  // - Does not allow empty user queries
+  // might want to just remove this though, not sure if it's
+  // really serving any purpose as this stage.
+  strict?: boolean;
+  debug?: boolean;
+}
+
+export function convertPermission({
+  result,
+  entities,
+  strict,
+  debug,
+}: ConvertPermissionArgs): ConvertPermissionResult {
   const resource = result.get("resource");
   const action = result.get("action");
   const actor = result.get("actor");
@@ -320,11 +385,16 @@ export function convertPermission(
     actionOrs,
     resourceOrs,
   ])) {
+    if (strict && isTrueClause(actorOr)) {
+      errors.push("rule does not specify a user");
+    }
+
     const users: SQLUser[] = [];
     for (const user of entities.users) {
       const result = evaluateClause({
         clause: actorOr,
-        evaluate: userEvaluator(user),
+        evaluate: userEvaluator({ user, debug }),
+        strict,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
@@ -341,7 +411,8 @@ export function convertPermission(
     for (const privilege of SchemaPrivileges) {
       const result = evaluateClause({
         clause: actionOr,
-        evaluate: permissionEvaluator(privilege),
+        evaluate: permissionEvaluator({ permission: privilege, debug }),
+        strict,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
@@ -355,7 +426,8 @@ export function convertPermission(
       for (const schema of entities.schemas) {
         const result = evaluateClause({
           clause: resourceOr,
-          evaluate: schemaEvaluator(schema),
+          evaluate: schemaEvaluator({ schema, debug }),
+          strict,
         });
         if (result.type === "error") {
           errors.push(...result.errors);
@@ -382,7 +454,8 @@ export function convertPermission(
     for (const privilege of TablePrivileges) {
       const result = evaluateClause({
         clause: actionOr,
-        evaluate: permissionEvaluator(privilege),
+        evaluate: permissionEvaluator({ permission: privilege, debug }),
+        strict,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
@@ -393,7 +466,12 @@ export function convertPermission(
 
     if (tablePrivileges.length > 0) {
       for (const table of entities.tables) {
-        const result = tableEvaluator(table, resourceOr);
+        const result = tableEvaluator({
+          table,
+          clause: resourceOr,
+          strict,
+          debug,
+        });
         if (result.type === "error") {
           errors.push(...result.errors);
         } else if (result.type === "match") {
@@ -431,12 +509,14 @@ export function convertPermission(
 export interface ParsePermissionsArgs {
   oso: Oso;
   entities: SQLEntities;
+  strict?: boolean;
   debug?: boolean;
 }
 
 export async function parsePermissions({
   oso,
   entities,
+  strict,
   debug,
 }: ParsePermissionsArgs): Promise<ConvertPermissionResult> {
   const result = oso.queryRule(
@@ -457,7 +537,7 @@ export async function parsePermissions({
       console.log("\nQUERY\n", printQuery(item));
     }
 
-    const result = convertPermission(item, entities);
+    const result = convertPermission({ result: item, entities, strict, debug });
     if (result.type === "success") {
       permissions.push(...result.permissions);
     } else {

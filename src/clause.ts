@@ -247,9 +247,44 @@ export function valueToClause(value: unknown): Clause {
       return { type: "or", clauses: outClauses };
     }
     if (value.operator === "Dot") {
+      if (typeof value.args[0] === "string") {
+        const col: Column = {
+          type: "column",
+          value: ["_this", value.args[1]].join("."),
+        };
+
+        return {
+          type: "and",
+          clauses: [
+            col,
+            {
+              type: "expression",
+              operator: "Eq",
+              values: [
+                { type: "column", value: "_this" },
+                { type: "value", value: value.args[0] },
+              ],
+            },
+          ],
+        };
+      }
+
       const args = value.args.map((arg) => valueToClause(arg));
-      const src = args[0] as Column;
-      const name = args[1] as Literal;
+      const src = args[0] as Value | AndClause;
+      const name = args[1] as Value;
+
+      if (src.type === "and") {
+        const col = src.clauses[0] as Column;
+        const newCol: Column = {
+          type: "column",
+          value: [col.value, name.value].join("."),
+        };
+
+        return {
+          type: "and",
+          clauses: [newCol, ...src.clauses.slice(1)],
+        };
+      }
 
       return {
         type: "column",
@@ -274,16 +309,37 @@ export function valueToClause(value: unknown): Clause {
     ) {
       return TrueClause;
     }
-    const left = valueToClause(value.args[0]) as Value;
-    const right = valueToClause(value.args[1]) as Value;
+    const clauses: Clause[] = [];
+    const leftClause = valueToClause(value.args[0]) as Value | AndClause;
+    let left: Value;
+    if (leftClause.type === "and") {
+      left = leftClause.clauses[0] as Value;
+      clauses.push(...leftClause.clauses.slice(1));
+    } else {
+      left = leftClause;
+    }
+
+    const rightClause = valueToClause(value.args[1]) as Value | AndClause;
+    let right: Value;
+    if (rightClause.type === "and") {
+      right = rightClause.clauses[0] as Value;
+      clauses.push(...rightClause.clauses.slice(1));
+    } else {
+      right = rightClause;
+    }
+
     const operator = value.operator === "Unify" ? "Eq" : value.operator;
 
-    // TODO: should ignore some operators
-    return {
+    const newClause: ExpressionClause = {
       type: "expression",
       operator,
       values: [left, right],
     };
+
+    if (clauses.length > 0) {
+      return { type: "and", clauses: [newClause, ...clauses] };
+    }
+    return newClause;
   }
   if (value instanceof Variable) {
     return {
@@ -344,6 +400,7 @@ export interface EvaluateClauseArgs {
   evaluate: (
     expr: Exclude<Clause, AndClause | OrClause | NotClause>,
   ) => EvaluateClauseResult;
+  strict?: boolean;
 }
 
 export interface EvaluateClauseSuccess {
@@ -361,6 +418,7 @@ export type EvaluateClauseResult = EvaluateClauseSuccess | EvaluateClauseError;
 export function evaluateClause({
   clause,
   evaluate,
+  strict,
 }: EvaluateClauseArgs): EvaluateClauseResult {
   if (clause.type === "and") {
     const errors: string[] = [];
@@ -373,7 +431,7 @@ export function evaluateClause({
         errors.push(...clauseResult.errors);
       }
     }
-    if (errors.length > 0) {
+    if ((strict || result) && errors.length > 0) {
       return { type: "error", errors };
     }
     return { type: "success", result };
@@ -407,12 +465,14 @@ export function evaluateClause({
 
 export interface SimpleEvaluatorArgs {
   variableName: string;
+  errorVariableName: string;
   // biome-ignore lint/suspicious/noExplicitAny: needed here
   getValue: (value: Value) => any;
 }
 
 export function simpleEvaluator({
   variableName,
+  errorVariableName,
   getValue,
 }: SimpleEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
   const func: EvaluateClauseArgs["evaluate"] = (expr) => {
@@ -422,7 +482,7 @@ export function simpleEvaluator({
     if (expr.type === "column") {
       return {
         type: "error",
-        errors: [`${variableName}: invalid reference: ${expr.value}`],
+        errors: [`${errorVariableName}: invalid reference: ${expr.value}`],
       };
     }
     if (expr.type === "value") {
@@ -432,16 +492,31 @@ export function simpleEvaluator({
         values: [{ type: "column", value: "_this" }, expr],
       });
     }
-    if (expr.operator !== "Eq") {
+    let operatorFunc: (a: unknown, b: unknown) => boolean;
+    if (expr.operator === "Eq") {
+      operatorFunc = (a, b) => a === b;
+    } else if (expr.operator === "Neq") {
+      operatorFunc = (a, b) => a !== b;
+    } else if (expr.operator === "Geq") {
+      operatorFunc = (a, b) => (a as string | number) >= (b as string | number);
+    } else if (expr.operator === "Gt") {
+      operatorFunc = (a, b) => (a as string | number) > (b as string | number);
+    } else if (expr.operator === "Lt") {
+      operatorFunc = (a, b) => (a as string | number) < (b as string | number);
+    } else if (expr.operator === "Leq") {
+      operatorFunc = (a, b) => (a as string | number) <= (b as string | number);
+    } else {
       return {
         type: "error",
-        errors: [`${variableName}: unsupported operator: ${expr.operator}`],
+        errors: [
+          `${errorVariableName}: unsupported operator: ${expr.operator}`,
+        ],
       };
     }
     if (expr.values[0].type === "value" && expr.values[1].type === "value") {
       return {
         type: "success",
-        result: expr.values[0].value === expr.values[1].value,
+        result: operatorFunc(expr.values[0].value, expr.values[1].value),
       };
     }
     const errors: string[] = [];
@@ -472,7 +547,7 @@ export function simpleEvaluator({
       return { type: "error", errors };
     }
 
-    return { type: "success", result: left === right };
+    return { type: "success", result: operatorFunc(left, right) };
   };
 
   return func;
