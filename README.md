@@ -15,3 +15,5 @@
 - [ ] - Github actions for tests
 
 - [ ] - Class annotations as a shorthand for `.type`
+
+- [ ] - Define top level API/CLI
