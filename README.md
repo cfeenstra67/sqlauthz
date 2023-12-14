@@ -1,6 +1,9 @@
 # SQLAuthz - Declarative permissions management for PostgreSQL
 
-SQLAuthz allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions; after all--what are permissions if not simply rules about what is allowed and what isn't? As an example of what this might look like, see the examples below:
+> [!WARNING]
+> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's very important that you **inspect the SQL queries** that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
+
+SQLAuthz allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
 
 ```polar
 # Give `user1` the `USAGE` permission on schema `myschema`;
