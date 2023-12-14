@@ -8,7 +8,7 @@
   "scripts": {
     "run-ts": "node --no-warnings --loader ts-node/esm",
     "cli": "node --no-warnings --loader ts-node/esm src/cli.ts",
-    "test": "node --no-warnings --loader ts-node/esm --test $(zsh -c 'echo test/**/*.test.ts')",
+    "test": "find ./test -name '*.test.ts' | xargs node --no-warnings --loader ts-node/esm --test",
     "check": "biome check --apply src test",
     "clean": "rm -rf dist",
     "build": "pnpm clean && tsc -p tsconfig.build.json && chmod +x dist/cli.js && cp -r src/sql dist/sql"
