@@ -2,16 +2,21 @@
   "name": "sqlauthz",
   "type": "module",
   "version": "0.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Declarative permission management for PostgreSQL",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "run-ts": "node --no-warnings --loader ts-node/esm",
     "cli": "node --no-warnings --loader ts-node/esm src/cli.ts",
     "test": "node --no-warnings --loader ts-node/esm --test $(zsh -c 'echo test/**/*.test.ts')",
-    "check": "biome check --apply src test"
+    "check": "biome check --apply src test",
+    "build": "tsc && chmod +x dist/cli.js"
   },
-  "keywords": [],
-  "author": "",
+  "bin": {
+    "sqlauthz": "./dist/cli.js"
+  },
+  "keywords": ["postgresql", "oso", "rbac", "pg", "permission", "declarative"],
+  "author": "cameron.l.feenstra@gmail.com",
   "license": "ISC",
   "dependencies": {
     "dotenv": "^16.3.1",
@@ -27,8 +32,5 @@
     "@types/yargs": "^17.0.32",
     "ts-node": "^10.9.1",
     "typescript": "^5.3.2"
-  },
-  "sqlauthz": {
-    "rules": ["rules.polar"]
   }
 }

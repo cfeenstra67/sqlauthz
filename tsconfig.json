@@ -2,6 +2,7 @@
     "ts-node": {
         "swc": true
     },
+    "include": ["src"],
     "compilerOptions": {
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
@@ -12,6 +13,7 @@
         "target": "ESNext",
         "sourceMap": true,
         "incremental": false,
+        "outDir": "./dist",
         "skipLibCheck": false,
         "strict": true,
         "noImplicitAny": false,

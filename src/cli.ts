@@ -39,9 +39,9 @@ async function main() {
         "Print GRANT statements that would be generated without running them.",
     })
     .pkgConf("sqlauthz")
-    .check((argv) => !(argv["dry-run"] && argv["dry-run-full"]))
-    .strict()
     .env("SQLAUTHZ")
+    .strict()
+    .check((argv) => !(argv["dry-run"] && argv["dry-run-full"]))
     .parseAsync();
 
   let oso: Oso;
