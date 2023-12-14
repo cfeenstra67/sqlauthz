@@ -3,9 +3,8 @@ import path from "node:path";
 import url from "node:url";
 import pg from "pg";
 import { createOso } from "../src/oso.js";
-import { deduplicatePermissions, parsePermissions } from "../src/parser.js";
+import { compileQuery } from "../src/parser.js";
 import { PostgresBackend } from "../src/pg-backend.js";
-import { constructFullQuery } from "../src/sql.js";
 
 const TestDir = url.fileURLToPath(new URL(".", import.meta.url));
 
@@ -92,7 +91,7 @@ export async function setupEnv(
 
   const rootUrl = rootDbUrl();
   const client = new pg.Client(rootUrl);
-  const backend = new PostgresBackend(dbUrl(rootUser, rootPassword, db));
+  const backendClient = new pg.Client(dbUrl(rootUser, rootPassword, db));
 
   const teardowns: (() => Promise<void>)[] = [];
   const teardownFunc = async () => {
@@ -107,30 +106,24 @@ export async function setupEnv(
       await client.query(`DROP DATABASE ${db}`);
     });
 
-    await backend.setup();
-    teardowns.push(() => backend.teardown());
-    await backend.execute(setup);
-    teardowns.push(() => backend.execute(teardown));
+    await backendClient.connect();
+    teardowns.push(() => backendClient.end());
+    await backendClient.query(setup);
+    teardowns.push(async () => {
+      await backendClient.query(teardown);
+    });
 
-    const entities = await backend.fetchEntities();
-    const result = await parsePermissions({ oso, entities });
-    const context = await backend.getContext(entities);
+    const backend = new PostgresBackend(backendClient);
+    const result = await compileQuery({
+      backend,
+      oso,
+    });
 
     if (result.type === "error") {
       throw new Error(`Parse error: ${JSON.stringify(result, null, 2)}`);
     }
 
-    const permissions = deduplicatePermissions(result.permissions);
-
-    const fullQuery = constructFullQuery({
-      backend,
-      entities,
-      context,
-      permissions,
-    });
-    // console.log(fullQuery);
-
-    await backend.execute(fullQuery);
+    await backend.execute(result.query);
 
     return teardownFunc;
   } catch (error) {

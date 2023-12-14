@@ -29,10 +29,6 @@ export interface SQLBackendContext {
 }
 
 export interface SQLBackend {
-  setup: () => Promise<void>;
-
-  teardown: () => Promise<void>;
-
   fetchEntities: () => Promise<SQLEntities>;
 
   execute: (query: string) => Promise<void>;

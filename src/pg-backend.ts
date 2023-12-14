@@ -26,19 +26,7 @@ const ProjectDir = url.fileURLToPath(new URL(".", import.meta.url));
 const SqlDir = path.join(ProjectDir, "sql/pg");
 
 export class PostgresBackend implements SQLBackend {
-  private readonly client: pg.Client;
-
-  constructor(config?: string | pg.ClientConfig) {
-    this.client = new pg.Client(config);
-  }
-
-  async setup(): Promise<void> {
-    await this.client.connect();
-  }
-
-  async teardown(): Promise<void> {
-    await this.client.end();
-  }
+  constructor(private readonly client: pg.Client) {}
 
   async fetchEntities(): Promise<SQLEntities> {
     const users = await this.client.query<{ name: string }>(
@@ -281,6 +269,7 @@ export class PostgresBackend implements SQLBackend {
   private evalColumnQuery(clause: Clause, column: string): boolean {
     const evaluate = simpleEvaluator({
       variableName: "col",
+      errorVariableName: "col",
       getValue: (value) => {
         if (value.type === "value") {
           return value.value;

@@ -1,5 +1,5 @@
 import { Oso, Variable } from "oso";
-import { SQLEntities } from "./backend.js";
+import { SQLBackend, SQLEntities } from "./backend.js";
 import {
   Clause,
   Column,
@@ -23,6 +23,7 @@ import {
   TablePermission,
   TablePrivilege,
   TablePrivileges,
+  constructFullQuery,
   formatTableName,
 } from "./sql.js";
 import { arrayProduct, printQuery } from "./utils.js";
@@ -618,4 +619,53 @@ export function deduplicatePermissions(
   }
 
   return outPermissions;
+}
+
+export interface CompilePermissionsQuery {
+  backend: SQLBackend;
+  oso: Oso;
+  debug?: boolean;
+  strict?: boolean;
+}
+
+export interface CompilePermissionsSuccess {
+  type: "success";
+  query: string;
+}
+
+export interface CompilePermissionsError {
+  type: "error";
+  errors: string[];
+}
+
+export type CompilePermissionsResult =
+  | CompilePermissionsSuccess
+  | CompilePermissionsError;
+
+export async function compileQuery({
+  backend,
+  oso,
+  debug,
+  strict,
+}: CompilePermissionsQuery): Promise<CompilePermissionsResult> {
+  const entities = await backend.fetchEntities();
+
+  const result = await parsePermissions({ oso, entities, debug, strict });
+
+  if (result.type !== "success") {
+    return result;
+  }
+
+  const context = await backend.getContext(entities);
+
+  const permissions = deduplicatePermissions(result.permissions);
+
+  const fullQuery = constructFullQuery({
+    backend,
+    entities,
+    context,
+    permissions,
+  });
+
+  return { type: "success", query: fullQuery };
 }
