@@ -11,7 +11,7 @@
     "test": "node --no-warnings --loader ts-node/esm --test $(zsh -c 'echo test/**/*.test.ts')",
     "check": "biome check --apply src test",
     "clean": "rm -rf dist",
-    "build": "pnpm clean && tsc && chmod +x dist/cli.js && cp -r src/sql dist/sql"
+    "build": "pnpm clean && tsc -p tsconfig.build.json && chmod +x dist/cli.js && cp -r src/sql dist/sql"
   },
   "bin": {
     "sqlauthz": "./dist/cli.js"

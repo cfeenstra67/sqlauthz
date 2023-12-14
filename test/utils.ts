@@ -34,23 +34,29 @@ export async function loadEnv(
   return [interpolate(setup), interpolate(teardown)];
 }
 
+export const rootDbUrl =
+  process.env.TEST_DATABASE_URL ??
+  "postgresql://postgres:password@localhost:5432/db";
+
 export function rulesFile(name: string): string {
   return path.join(RulesDir, `${name}.polar`);
 }
 
 export function dbUrl(username: string, password: string, db: string): string {
-  return `postgresql://${username}:${password}@localhost:5432/${db}`;
+  const newUrl = new URL(rootDbUrl);
+  newUrl.username = username;
+  newUrl.password = password;
+  newUrl.pathname = `/${db}`;
+  return newUrl.href;
 }
 
-export const rootUser = "postgres";
+const rootDbUrlObj = new URL(rootDbUrl);
 
-export const rootPassword = "password";
+export const rootUser = rootDbUrlObj.username;
 
-export const rootDb = "db";
+export const rootPassword = rootDbUrlObj.password;
 
-export function rootDbUrl(): string {
-  return dbUrl(rootUser, rootPassword, rootDb);
-}
+export const rootDb = rootDbUrlObj.pathname.slice(1);
 
 function nameGenerator(prefix: string): () => string {
   let i = 0;
@@ -89,8 +95,7 @@ export async function setupEnv(
 
   const [setup, teardown] = await loadEnv(env, vars);
 
-  const rootUrl = rootDbUrl();
-  const client = new pg.Client(rootUrl);
+  const client = new pg.Client(rootDbUrl);
   const backendClient = new pg.Client(dbUrl(rootUser, rootPassword, db));
 
   const teardowns: (() => Promise<void>)[] = [];
