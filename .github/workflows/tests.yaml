@@ -55,4 +55,4 @@ jobs:
       - name: Run tests
         run: pnpm test
         env:
-          TEST_DATABASE_URL: postgresql://postgres:password@localhost:${{ job.services.postgres.ports[5432] }}/database
+          TEST_DATABASE_URL: postgresql://postgres:password@localhost:${{ job.services.postgres.ports[5432] }}/db
