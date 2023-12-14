@@ -10,14 +10,32 @@
     "cli": "node --no-warnings --loader ts-node/esm src/cli.ts",
     "test": "node --no-warnings --loader ts-node/esm --test $(zsh -c 'echo test/**/*.test.ts')",
     "check": "biome check --apply src test",
-    "build": "tsc && chmod +x dist/cli.js"
+    "clean": "rm -rf dist",
+    "build": "pnpm clean && tsc && chmod +x dist/cli.js && cp -r src/sql dist/sql"
   },
   "bin": {
     "sqlauthz": "./dist/cli.js"
   },
-  "keywords": ["postgresql", "oso", "rbac", "pg", "permission", "declarative"],
+  "keywords": [
+    "postgresql",
+    "oso",
+    "rbac",
+    "pg",
+    "permission",
+    "declarative"
+  ],
+  "files": [
+    "package.json",
+    "README.md",
+    "LICENSE.txt",
+    "dist"
+  ],
   "author": "cameron.l.feenstra@gmail.com",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cfeenstra67/sqlauthz"
+  },
+  "license": "MIT",
   "dependencies": {
     "dotenv": "^16.3.1",
     "oso": "^0.27.0",
