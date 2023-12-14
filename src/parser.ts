@@ -23,6 +23,7 @@ import {
   TablePermission,
   TablePrivilege,
   TablePrivileges,
+  UserRevokePolicy,
   constructFullQuery,
   formatTableName,
 } from "./sql.js";
@@ -624,6 +625,9 @@ export function deduplicatePermissions(
 export interface CompilePermissionsQuery {
   backend: SQLBackend;
   oso: Oso;
+  userRevokePolicy?: UserRevokePolicy;
+  includeSetupAndTeardown?: boolean;
+  includeTransaction?: boolean;
   debug?: boolean;
   strict?: boolean;
 }
@@ -645,6 +649,9 @@ export type CompilePermissionsResult =
 export async function compileQuery({
   backend,
   oso,
+  userRevokePolicy,
+  includeSetupAndTeardown,
+  includeTransaction,
   debug,
   strict,
 }: CompilePermissionsQuery): Promise<CompilePermissionsResult> {
@@ -661,10 +668,12 @@ export async function compileQuery({
   const permissions = deduplicatePermissions(result.permissions);
 
   const fullQuery = constructFullQuery({
-    backend,
     entities,
     context,
     permissions,
+    userRevokePolicy,
+    includeSetupAndTeardown,
+    includeTransaction,
   });
 
   return { type: "success", query: fullQuery };

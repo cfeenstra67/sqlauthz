@@ -97,7 +97,6 @@ export type UserRevokePolicy =
   | UserRevokePolicyExplicit;
 
 export interface ConstructFullQueryArgs {
-  backend: SQLBackend;
   context: SQLBackendContext;
   entities: SQLEntities;
   userRevokePolicy?: UserRevokePolicy;
@@ -107,7 +106,6 @@ export interface ConstructFullQueryArgs {
 }
 
 export function constructFullQuery({
-  backend,
   entities,
   context,
   userRevokePolicy,
