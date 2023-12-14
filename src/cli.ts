@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import fs from "node:fs";
-import path from "node:path";
 import "dotenv/config";
 import { Oso } from "oso";
 import pg from "pg";
@@ -11,24 +9,9 @@ import { compileQuery } from "./parser.js";
 import { PostgresBackend } from "./pg-backend.js";
 
 async function main() {
-  // biome-ignore lint/suspicious/noExplicitAny: package.json
-  let pkg: any = {};
-  try {
-    const pkgPath = path.resolve("package.json");
-    if (fs.existsSync(pkgPath)) {
-      pkg = JSON.parse(
-        await fs.promises.readFile(pkgPath, { encoding: "utf8" }),
-      );
-    }
-  } catch (error) {
-    if (!(error instanceof TypeError)) {
-      console.error(`Error parsing package.json: ${error}`);
-    }
-  }
-
-  const pkgConfig = pkg?.sqlauthz ?? {};
-
   const args = await yargs(hideBin(process.argv))
+    .scriptName("sqlauthz")
+    .usage("$0 [args]", "Declaratively manage PostgreSQL permissions")
     .option("rules", {
       alias: "r",
       type: "string",
@@ -55,7 +38,7 @@ async function main() {
       description:
         "Print GRANT statements that would be generated without running them.",
     })
-    .config(pkgConfig)
+    .pkgConf("sqlauthz")
     .check((argv) => !(argv["dry-run"] && argv["dry-run-full"]))
     .strict()
     .env("SQLAUTHZ")
