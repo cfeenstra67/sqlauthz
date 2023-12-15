@@ -237,3 +237,54 @@ describe("test-multi-table-3-read-only", async () => {
     }
   }
 });
+
+describe('test-multi-table-4', async () => {
+
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient1 = dbClientGenerator(dbUrl(user1, "blah", db));
+  const useClient2 = dbClientGenerator(dbUrl(user2, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("multi-table", "multi-table-4", db, {
+      user1,
+      user2,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it('user1: can access test.articles', async () => {
+    await useClient1(async (client) => {
+      const result = await client.query<{ ct: number }>(
+        'SELECT COUNT(1) as ct FROM test.articles',
+      );
+      assert.equal(result.rowCount, 1);
+      assert.equal(result.rows[0]!.ct,1);
+    });
+  });
+
+  for (const [user, useClient, schema, table] of [
+    ['user1', useClient1, 'test', 'articles2'],
+    ['user1', useClient1, 'test2', 'articles'],
+    ['user1', useClient1, 'test2', 'articles2'],
+    ['user2', useClient2, 'test', 'articles'],
+    ['user2', useClient2, 'test', 'articles2'],
+    ['user2', useClient2, 'test2', 'articles'],
+    ['user2', useClient2, 'test2', 'articles2']
+  ] as const) {
+    await it(`${user}: cannot access ${schema}.${table}`, async () => {
+      await useClient(async (client) => {
+        await assert.rejects(client.query(`SELECT COUNT(1) as ct FROM ${schema}.${table}`), {
+          message: `permission denied for table ${table}`
+        });
+      });
+    });
+  }
+
+});
