@@ -38,6 +38,8 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - name: Install node dependencies
         run: pnpm install
+      - name: Build package
+        run: pnpm build
       - name: Pack package
         run: pnpm pack
       - name: Publish package
