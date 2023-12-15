@@ -11,7 +11,9 @@
     "test": "find ./test -name '*.test.ts' | xargs node --no-warnings --loader ts-node/esm --test",
     "check": "biome check --apply src test",
     "clean": "rm -rf dist",
-    "build": "pnpm clean && tsc -p tsconfig.build.json && chmod +x dist/cli.js && cp -r src/sql dist/sql"
+    "build": "pnpm clean && tsc -p tsconfig.build.json && chmod +x dist/cli.js && cp -r src/sql dist/sql",
+    "bumpversion": "bump --commit --tag",
+    "npm-publish": "scripts/publish.sh"
   },
   "bin": {
     "sqlauthz": "./dist/cli.js"
@@ -24,6 +26,10 @@
     "permission",
     "declarative"
   ],
+  "homepage": "https://github.com/cfeenstra67/sqlauthz",
+  "bugs": {
+    "url": "https://github.com/cfeenstra67/sqlauthz/issues"
+  },
   "files": [
     "package.json",
     "README.md",
@@ -44,6 +50,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.4.1",
+    "@jsdevtools/version-bump-prompt": "^6.1.0",
     "@swc/core": "^1.3.99",
     "@types/node": "^20.10.0",
     "@types/pg": "^8.10.9",

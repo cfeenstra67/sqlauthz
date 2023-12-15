@@ -1,31 +1,14 @@
-name: Run tests
+name: Publish package
 
 on:
-  push:
-    branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  create:
+    tags:
+      - v*
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: db
-        ports:
-          - 5432/tcp
-          # Set health checks to wait until postgres has started
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +35,5 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       - name: Install node dependencies
         run: pnpm install
-      - name: Run tests
-        run: pnpm test
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:password@localhost:${{ job.services.postgres.ports[5432] }}/db
+      - name: Publish package
+        run: pnpm npm-publish
