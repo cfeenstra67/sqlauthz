@@ -1,7 +1,7 @@
 {
   "name": "sqlauthz",
   "type": "module",
-  "version": "0.0.1-beta.7",
+  "version": "0.0.1",
   "description": "Declarative permission management for PostgreSQL",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
