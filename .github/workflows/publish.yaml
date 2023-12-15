@@ -38,7 +38,11 @@ jobs:
       - name: Pack package
         run: pnpm pack
       - name: Publish package
-        run: pnpm npm-publish
+        run: 
+          env
+          pnpm npm-publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
