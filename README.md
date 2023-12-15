@@ -37,9 +37,28 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
 ## Table of Contents
 
 - [Installation](#installation)
+- [CLI](#cli)
+- [Using `sqlauthz` as a library](#using-sqlauthz-as-a-library)
+- [Examples](#examples)
 - [Support and Feature Requests](#support-and-feature-requests)
 
 ## Installation
+
+`sqlauthz` is distributed as an `npm` package, so you can install it via your favorite package manager:
+```bash
+npm install --save-dev sqlauthz
+```
+You may not want to install it as a development dependency if you plan on using it as a library within your application.
+
+# CLI
+
+TODO
+
+# Using `sqlauthz` as a library
+
+TODO
+
+# Examples
 
 TODO
 
