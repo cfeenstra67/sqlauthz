@@ -38,9 +38,7 @@ jobs:
       - name: Pack package
         run: pnpm pack
       - name: Publish package
-        run: 
-          env
-          pnpm npm-publish
+        run: pnpm npm-publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create Release
