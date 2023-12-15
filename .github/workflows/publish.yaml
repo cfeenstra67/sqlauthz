@@ -6,7 +6,7 @@ on:
       - v*
 
 jobs:
-  test:
+  publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: '20'
+          registry-url: 'https://registry.npmjs.org/'
       # PNPM stuff
       - name: Install pnpm
         uses: pnpm/action-setup@v2
