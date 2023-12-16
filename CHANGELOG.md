@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.2] - 2023-12-16
+
+### Added
+
+- Added `NO_DOTENV` environment variable to disable loading environment variables from `.env` file.
+
+### Changed
+
+- Quote row-level security policy names in `CREATE POLICY` queries.
+
 ## [0.1.1] - 2023-12-16
 
 ### Fixed
