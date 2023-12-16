@@ -628,6 +628,7 @@ export interface CompilePermissionsQuery {
   userRevokePolicy?: UserRevokePolicy;
   includeSetupAndTeardown?: boolean;
   includeTransaction?: boolean;
+  entities?: SQLEntities;
   debug?: boolean;
   strict?: boolean;
 }
@@ -649,13 +650,16 @@ export type CompilePermissionsResult =
 export async function compileQuery({
   backend,
   oso,
+  entities,
   userRevokePolicy,
   includeSetupAndTeardown,
   includeTransaction,
   debug,
   strict,
 }: CompilePermissionsQuery): Promise<CompilePermissionsResult> {
-  const entities = await backend.fetchEntities();
+  if (entities === undefined) {
+    entities = await backend.fetchEntities();
+  }
 
   const result = await parsePermissions({ oso, entities, debug, strict });
 

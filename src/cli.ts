@@ -38,6 +38,11 @@ async function main() {
       description:
         "Print GRANT statements that would be generated without running them.",
     })
+    .option("debug", {
+      type: "boolean",
+      description: "Print more detailed error information for debugging issues",
+      default: false,
+    })
     .pkgConf("sqlauthz")
     .env("SQLAUTHZ")
     .strict()
@@ -69,6 +74,7 @@ async function main() {
       oso,
       includeSetupAndTeardown: !args.dryRunShort,
       includeTransaction: !args.dryRunShort,
+      debug: args.debug,
     });
     if (query.type !== "success") {
       console.error("Unable to compile permission queries. Errors:");
@@ -83,7 +89,7 @@ async function main() {
       return;
     }
 
-    await backend.execute(query.query);
+    await client.query(query.query);
     console.log("Permissions updated successfully");
   } finally {
     await client.end();

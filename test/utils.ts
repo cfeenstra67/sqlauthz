@@ -128,7 +128,7 @@ export async function setupEnv(
       throw new Error(`Parse error: ${JSON.stringify(result, null, 2)}`);
     }
 
-    await backend.execute(result.query);
+    await backendClient.query(result.query);
 
     return teardownFunc;
   } catch (error) {

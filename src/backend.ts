@@ -31,7 +31,5 @@ export interface SQLBackendContext {
 export interface SQLBackend {
   fetchEntities: () => Promise<SQLEntities>;
 
-  execute: (query: string) => Promise<void>;
-
   getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
 }

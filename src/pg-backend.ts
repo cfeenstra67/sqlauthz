@@ -143,10 +143,6 @@ export class PostgresBackend implements SQLBackend {
     };
   }
 
-  async execute(query: string): Promise<void> {
-    await this.client.query(query);
-  }
-
   private quoteIdentifier(identifier: string): string {
     return JSON.stringify(identifier);
   }
