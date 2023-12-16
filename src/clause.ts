@@ -400,7 +400,7 @@ export interface EvaluateClauseArgs {
   evaluate: (
     expr: Exclude<Clause, AndClause | OrClause | NotClause>,
   ) => EvaluateClauseResult;
-  strict?: boolean;
+  strictFields?: boolean;
 }
 
 export interface EvaluateClauseSuccess {
@@ -418,7 +418,7 @@ export type EvaluateClauseResult = EvaluateClauseSuccess | EvaluateClauseError;
 export function evaluateClause({
   clause,
   evaluate,
-  strict,
+  strictFields,
 }: EvaluateClauseArgs): EvaluateClauseResult {
   if (clause.type === "and") {
     const errors: string[] = [];
@@ -431,7 +431,7 @@ export function evaluateClause({
         errors.push(...clauseResult.errors);
       }
     }
-    if ((strict || result) && errors.length > 0) {
+    if ((strictFields || result) && errors.length > 0) {
       return { type: "error", errors };
     }
     return { type: "success", result };

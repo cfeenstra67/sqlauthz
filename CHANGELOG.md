@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.1.0] - 2023-12-16
+
+### Added
+
+- Exposed user revoke strategies and `allowAnyUser` in the CLI.
+
+- Added basic documentation in the README.
+
 ## [0.0.3] - 2023-12-15
 
 ### Fixed

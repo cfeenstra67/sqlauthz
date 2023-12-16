@@ -87,8 +87,8 @@ export interface UserRevokePolicyReferenced {
 }
 
 export interface UserRevokePolicyExplicit {
-  type: "explicit";
-  usernames: string[];
+  type: "users";
+  users: string[];
 }
 
 export type UserRevokePolicy =
@@ -137,9 +137,9 @@ export function constructFullQuery({
       case "all":
         usersToRevoke = entities.users.map((user) => user.name);
         break;
-      case "explicit": {
+      case "users": {
         const allUsernames = new Set(entities.users.map((user) => user.name));
-        usersToRevoke = revokePolicy.usernames.filter((username) =>
+        usersToRevoke = revokePolicy.users.filter((username) =>
           allUsernames.has(username),
         );
         break;

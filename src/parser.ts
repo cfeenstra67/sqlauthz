@@ -95,14 +95,14 @@ interface TableEvaluatorArgs {
   table: SQLTableMetadata;
   clause: Clause;
   debug?: boolean;
-  strict?: boolean;
+  strictFields?: boolean;
 }
 
 function tableEvaluator({
   table,
   clause,
   debug,
-  strict,
+  strictFields,
 }: TableEvaluatorArgs): TableEvaluatorResult {
   const tableName = formatTableName(table);
   const variableName = "resource";
@@ -268,7 +268,7 @@ function tableEvaluator({
   const evalResult = evaluateClause({
     clause: { type: "and", clauses: metaClauses },
     evaluate: metaEvaluator,
-    strict,
+    strictFields,
   });
   if (evalResult.type === "error") {
     return evalResult;
@@ -356,19 +356,16 @@ function permissionEvaluator({
 export interface ConvertPermissionArgs {
   result: Map<string, unknown>;
   entities: SQLEntities;
-  // Does two things right now, might want to split into two args:
-  // - Checks that all fields are valid in all rules
-  // - Does not allow empty user queries
-  // might want to just remove this though, not sure if it's
-  // really serving any purpose as this stage.
-  strict?: boolean;
+  allowAnyActor?: boolean;
+  strictFields?: boolean;
   debug?: boolean;
 }
 
 export function convertPermission({
   result,
   entities,
-  strict,
+  allowAnyActor,
+  strictFields,
   debug,
 }: ConvertPermissionArgs): ConvertPermissionResult {
   const resource = result.get("resource");
@@ -391,7 +388,7 @@ export function convertPermission({
     actionOrs,
     resourceOrs,
   ])) {
-    if (strict && isTrueClause(actorOr)) {
+    if (!allowAnyActor && isTrueClause(actorOr)) {
       errors.push("rule does not specify a user");
     }
 
@@ -400,7 +397,7 @@ export function convertPermission({
       const result = evaluateClause({
         clause: actorOr,
         evaluate: userEvaluator({ user, debug }),
-        strict,
+        strictFields,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
@@ -418,7 +415,7 @@ export function convertPermission({
       const result = evaluateClause({
         clause: actionOr,
         evaluate: permissionEvaluator({ permission: privilege, debug }),
-        strict,
+        strictFields,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
@@ -433,7 +430,7 @@ export function convertPermission({
         const result = evaluateClause({
           clause: resourceOr,
           evaluate: schemaEvaluator({ schema, debug }),
-          strict,
+          strictFields,
         });
         if (result.type === "error") {
           errors.push(...result.errors);
@@ -461,7 +458,7 @@ export function convertPermission({
       const result = evaluateClause({
         clause: actionOr,
         evaluate: permissionEvaluator({ permission: privilege, debug }),
-        strict,
+        strictFields,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
@@ -475,7 +472,7 @@ export function convertPermission({
         const result = tableEvaluator({
           table,
           clause: resourceOr,
-          strict,
+          strictFields,
           debug,
         });
         if (result.type === "error") {
@@ -515,14 +512,16 @@ export function convertPermission({
 export interface ParsePermissionsArgs {
   oso: Oso;
   entities: SQLEntities;
-  strict?: boolean;
+  allowAnyActor?: boolean;
+  strictFields?: boolean;
   debug?: boolean;
 }
 
 export async function parsePermissions({
   oso,
   entities,
-  strict,
+  allowAnyActor,
+  strictFields,
   debug,
 }: ParsePermissionsArgs): Promise<ConvertPermissionResult> {
   const result = oso.queryRule(
@@ -539,11 +538,13 @@ export async function parsePermissions({
   const errors: string[] = [];
 
   for await (const item of result) {
-    if (debug) {
-      console.log("\nQUERY\n", printQuery(item));
-    }
-
-    const result = convertPermission({ result: item, entities, strict, debug });
+    const result = convertPermission({
+      result: item,
+      entities,
+      allowAnyActor,
+      strictFields,
+      debug,
+    });
     if (result.type === "success") {
       permissions.push(...result.permissions);
     } else {
@@ -629,8 +630,9 @@ export interface CompilePermissionsQuery {
   includeSetupAndTeardown?: boolean;
   includeTransaction?: boolean;
   entities?: SQLEntities;
+  strictFields?: boolean;
+  allowAnyActor?: boolean;
   debug?: boolean;
-  strict?: boolean;
 }
 
 export interface CompilePermissionsSuccess {
@@ -655,13 +657,20 @@ export async function compileQuery({
   includeSetupAndTeardown,
   includeTransaction,
   debug,
-  strict,
+  strictFields,
+  allowAnyActor,
 }: CompilePermissionsQuery): Promise<CompilePermissionsResult> {
   if (entities === undefined) {
     entities = await backend.fetchEntities();
   }
 
-  const result = await parsePermissions({ oso, entities, debug, strict });
+  const result = await parsePermissions({
+    oso,
+    entities,
+    debug,
+    strictFields,
+    allowAnyActor,
+  });
 
   if (result.type !== "success") {
     return result;
