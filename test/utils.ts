@@ -100,7 +100,7 @@ export async function setupEnv(
 
   const teardowns: (() => Promise<void>)[] = [];
   const teardownFunc = async () => {
-    await Promise.allSettled(teardowns.toReversed().map((func) => func()));
+    await Promise.allSettled([...teardowns].reverse().map((func) => func()));
   };
 
   try {

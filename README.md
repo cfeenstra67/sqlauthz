@@ -77,17 +77,15 @@ npx sqlauthz
 
 ### CLI Configuration
 
-The configuration options for `sqlauthz` can be found in the table below:
+The configuration options for `sqlauthz` can be found in the table below. Note that the argument name in the `sqlauthz` key of `package.json` is given first, then the CLI argument, then the environment variable:
 
-| Name | Required | Default | CLI arg | Env Variable | Description |
-| ---- | -------- | ------- | ------- | ------------ | ----------- |
-| `databaseUrl` | Yes | | `-d`, `--database-url` | `SQLAUTHZ_DATABASE_URL` | Database URL to connect to for reading the current schema and executing queries (unless one of the `dryRun` arguments is passed) |
-| `rules` | No | `['sqlauthz.polar']` | `-r`, `--rules` | `SQLAUTHZ_RULE` | Path(s) to `.polar` files containing rules. Note that only a single path is supported when setting this argument via environment variable |
-| `dryRun` | No | `false` | `--dry-run` | `SQLAUTHZ_DRY_RUN` | Print the full SQL query that would be executed instead of executing it. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRunShort` |
-| `dryRunShort` | No | `false` | `--dry-run-short` | `SQLAUTHZ_DRY_RUN_SHORT` | Print an abbreviated SQL query, only containing the `GRANT` queries that will be run, instead of executing anything. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRun` |
-| `debug` | No | `false` | `--debug` | `SQLAUTHZ_DEBUG` | Print more detailed error information for debugging compilation failures. Note that if setting this via environment variable, the value must be `true`. |
-
-_Note_: The argument names in the `sqlauthz` key in `package.json` match the "Name" column in the table above.
+| Name | Required | Default | Description |
+| ---- | -------- | ------- | ----------- |
+| `databaseUrl`<br/>`-d`, `--database-url`<br/>`SQLAUTHZ_DATABASE_URL` | Yes | | Database URL to connect to for reading the current schema and executing queries (unless one of the `dryRun` arguments is passed) |
+| `rules`<br/>`-r`, `--rules`<br/>`SQLAUTHZ_RULES` | No | `['sqlauthz.polar']` | Path(s) to `.polar` files containing rules. Note that only a single path is supported when setting this argument via environment variable |
+| `dryRun`<br/>`--dry-run`<br/>`SQLAUTHZ_DRY_RUN` | No | `false` | Print the full SQL query that would be executed instead of executing it. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRunShort` |
+| `dryRunShort`<br/>`--dry-run-short`<br/>`SQLAUTHZ_DRY_RUN_SHORT` | No | `false` | Print an abbreviated SQL query, only containing the `GRANT` queries that will be run, instead of executing anything. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRun` |
+| `debug`<br/>`--debug`<br/>`SQLAUTHZ_DEBUG` | No | `false` | Print more detailed error information for debugging compilation failures. Note that if setting this via environment variable, the value must be `true`. |
 
 ## Using `sqlauthz` as a library
 
