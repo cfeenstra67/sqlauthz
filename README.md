@@ -134,7 +134,7 @@ import {
 const client = new pg.Client('my-db-url');
 await client.connect();
 
-const result = compileQuery({
+const result = await compileQuery({
   backend: new PostgresBackend(client),
   oso: await createOso({ paths: ['./my-rules-file.polar'] }),
 });
@@ -246,6 +246,8 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 - Currently does not support using PostgreSQL functions in row-level security clauses e.g. `owner = get_config('current_user')`
 
 - At the moment will only grant permissions on objects that exist in the database at the time of applying permissions. For example, if you write a rule that allows access to all objects within a schema, `sqlauthz` will generate a `GRANT` query for each one of those objects individual rather than one with `FOR ALL TABLES IN SCHEMA <schema>`.
+
+- Only supports assigning permissions to users, not groups.
 
 ## Support and Feature Requests
 
