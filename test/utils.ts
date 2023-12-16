@@ -3,7 +3,7 @@ import path from "node:path";
 import url from "node:url";
 import pg from "pg";
 import { createOso } from "../src/oso.js";
-import { compileQuery } from "../src/parser.js";
+import { CompileQueryArgs, compileQuery } from "../src/parser.js";
 import { PostgresBackend } from "../src/pg-backend.js";
 
 const TestDir = url.fileURLToPath(new URL(".", import.meta.url));
@@ -87,6 +87,7 @@ export async function setupEnv(
   rules: string,
   db: string,
   vars: Record<string, string>,
+  opts?: Omit<CompileQueryArgs, "oso" | "backend">,
 ) {
   const oso = await createOso({
     paths: [rulesFile(rules)],
@@ -122,10 +123,11 @@ export async function setupEnv(
     const result = await compileQuery({
       backend,
       oso,
+      ...opts,
     });
 
     if (result.type === "error") {
-      throw new Error(`Parse error: ${JSON.stringify(result, null, 2)}`);
+      throw new Error(`Parse error: ${JSON.stringify(result.errors, null, 2)}`);
     }
 
     await backendClient.query(result.query);

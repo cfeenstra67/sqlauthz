@@ -95,10 +95,16 @@ describe("test-multi-table-1-full-access", async () => {
   let teardown: () => Promise<void> = async () => {};
 
   before(async () => {
-    teardown = await setupEnv("multi-table", "multi-table-1", db, {
-      user1,
-      user2,
-    });
+    teardown = await setupEnv(
+      "multi-table",
+      "multi-table-1",
+      db,
+      {
+        user1,
+        user2,
+      },
+      { allowAnyActor: true },
+    );
   });
 
   after(async () => {
@@ -127,6 +133,27 @@ describe("test-multi-table-1-full-access", async () => {
       }
     }
   }
+});
+
+describe("test-multi-table-1-fails-without-any-user", async () => {
+  await it("fails without allowAnyUser", async () => {
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const db = dbNameGenerator();
+    await assert.rejects(
+      setupEnv("multi-table", "multi-table-1", db, {
+        user1,
+        user2,
+      }),
+      {
+        message: `Parse error: ${JSON.stringify(
+          ["rule does not specify a user"],
+          null,
+          2,
+        )}`,
+      },
+    );
+  });
 });
 
 describe("test-multi-table-2-selective-access", async () => {
@@ -201,10 +228,16 @@ describe("test-multi-table-3-read-only", async () => {
   let teardown: () => Promise<void> = async () => {};
 
   before(async () => {
-    teardown = await setupEnv("multi-table", "multi-table-3", db, {
-      user1,
-      user2,
-    });
+    teardown = await setupEnv(
+      "multi-table",
+      "multi-table-3",
+      db,
+      {
+        user1,
+        user2,
+      },
+      { allowAnyActor: true },
+    );
   });
 
   after(async () => {
@@ -236,6 +269,27 @@ describe("test-multi-table-3-read-only", async () => {
       }
     }
   }
+});
+
+describe("test-multi-table-3-fails-without-any-user", async () => {
+  await it("fails without allowAnyUser", async () => {
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const db = dbNameGenerator();
+    await assert.rejects(
+      setupEnv("multi-table", "multi-table-3", db, {
+        user1,
+        user2,
+      }),
+      {
+        message: `Parse error: ${JSON.stringify(
+          ["rule does not specify a user"],
+          null,
+          2,
+        )}`,
+      },
+    );
+  });
 });
 
 describe("test-multi-table-4", async () => {

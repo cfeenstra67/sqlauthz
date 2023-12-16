@@ -27,7 +27,7 @@ import {
   constructFullQuery,
   formatTableName,
 } from "./sql.js";
-import { arrayProduct, printQuery } from "./utils.js";
+import { arrayProduct } from "./utils.js";
 
 export interface ConvertPermissionSuccess {
   type: "success";
@@ -361,6 +361,10 @@ export interface ConvertPermissionArgs {
   debug?: boolean;
 }
 
+function isIdentityClause(clause: Clause, variable: string): boolean {
+  return clause.type === "column" && clause.value === variable;
+}
+
 export function convertPermission({
   result,
   entities,
@@ -388,7 +392,10 @@ export function convertPermission({
     actionOrs,
     resourceOrs,
   ])) {
-    if (!allowAnyActor && isTrueClause(actorOr)) {
+    if (
+      !allowAnyActor &&
+      (isTrueClause(actorOr) || isIdentityClause(actorOr, "actor"))
+    ) {
       errors.push("rule does not specify a user");
     }
 
@@ -623,7 +630,7 @@ export function deduplicatePermissions(
   return outPermissions;
 }
 
-export interface CompilePermissionsQuery {
+export interface CompileQueryArgs {
   backend: SQLBackend;
   oso: Oso;
   userRevokePolicy?: UserRevokePolicy;
@@ -659,7 +666,7 @@ export async function compileQuery({
   debug,
   strictFields,
   allowAnyActor,
-}: CompilePermissionsQuery): Promise<CompilePermissionsResult> {
+}: CompileQueryArgs): Promise<CompilePermissionsResult> {
   if (entities === undefined) {
     entities = await backend.fetchEntities();
   }
