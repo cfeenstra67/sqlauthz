@@ -50,6 +50,7 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
     - [Grant a user read-only access on a schema](#grant-a-user-read-only-access-on-a-schema)
     - [Grant a user read permissions on a limited set of rows and columns in a table](#grant-a-user-read-permissions-on-a-limited-set-of-rows-and-columns-in-a-table)
 - [Motivation](#motivation)
+- [Limitations](#limitations)
 - [Support and Feature Requests](#support-and-feature-requests)
 
 ## Installation
@@ -227,6 +228,18 @@ The difficult thing about fully making use of fine-grained permissions is mainly
 Declarative configuration is an excellent fit for maintaining complex systems as they change over time because the maintainer need only decide the state they want their system to be in, not the steps needed to get there. This is a very popular feature of ORMs, where they inspect models declared in code and generate SQL migrations scripts to update the database to match the state of the declared models. Similarly, infrastructure-as-code tools take a declarative configuration of desired cloud resources and make API calls to update your cloud resources to the desired state.
 
 `sqlauthz` takes the declarative configuration approach and applies it to PostgreSQL permissions. It's designed so that writing simple rules is simple, but it's also easy to scale the complexity of the rules to be as fine-grained as you want them to be. It takes a zero-access-by-default approach, so that all permissions need to be explicitly granted to a user. I chose the polar language because I've had success with it in other projects as a great, clean way to write authorization rules. And at the day, the difference between 
+
+## Limitations
+
+`sqlauthz` is still very early in its development and while it should have enough functionality to be usable for a lot of use-cases, there's a lot of functionality missing as well. More or less all of these are on my radar as improvement to make eventually, however if any of these are particularly important to you feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and let me know. That will help me prioritize what to work on first.
+
+- Currently only supports a limited set of permissions - `USAGE` on schemas as `SELECT`, `UPDATE`, `INSERT`, `DELETE` on tables.
+
+- Currently does not support permissions on views or functions.
+
+- Currently does not support using PostgreSQL functions in row-level security clauses e.g. `owner = get_config('current_user')`
+
+- At the moment will only grant permissions on objects that exist in the database at the time of applying permissions. For example, if you write a rule that allows access to all objects within a schema, `sqlauthz` will generate a `GRANT` query for each one of those objects individual rather than one with `FOR ALL TABLES IN SCHEMA <schema>`.
 
 ## Support and Feature Requests
 
