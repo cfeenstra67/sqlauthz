@@ -96,6 +96,12 @@ The configuration options for `sqlauthz` can be found in the table below. Note t
 | `dryRunShort`<br/>`--dry-run-short`<br/>`SQLAUTHZ_DRY_RUN_SHORT` | No | `false` | Print an abbreviated SQL query, only containing the `GRANT` queries that will be run, instead of executing anything. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRun` |
 | `debug`<br/>`--debug`<br/>`SQLAUTHZ_DEBUG` | No | `false` | Print more detailed error information for debugging compilation failures. Note that if setting this via environment variable, the value must be `true`. |
 
+_NOTE_: Environment variables will be loaded from your `.env` file and used as arguments where applicable. The order of precedence for configuration arguments is:
+- Command line args
+- Environment variables
+- The `sqlauthz` key in `package.json`
+You can disable the loading of environment variables from you `.env` file by setting the `NO_DOTENV` environment variable to any truthy value.
+
 ### User revoke strategies
 
 The intent of `sqlauthz` is the after you apply your permission rules, they will define the entire set of permissions for a user. Before `sqlauthz` applies new permissions, it revokes all permissions from a set of users first. It both revokes and grants the permissions as part of the same transaction, however, so in practice this does not lead to any "downtime" where a user has no permissions.

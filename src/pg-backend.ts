@@ -249,7 +249,7 @@ export class PostgresBackend implements SQLBackend {
         const rlsQueries = Array.from(tablesToAddRlsTo).flatMap((tableName) => [
           `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
           // biome-ignore lint: best way to do this
-          `CREATE POLICY default_access ON ${tableName} AS PERMISSIVE FOR ` +
+          `CREATE POLICY "default_access" ON ${tableName} AS PERMISSIVE FOR ` +
             "ALL TO PUBLIC USING (true);",
         ]);
 
@@ -370,7 +370,7 @@ export class PostgresBackend implements SQLBackend {
             const out = [
               `GRANT SELECT${columnPart} ON ${this.quoteTableName(
                 permission.table,
-              )} ` + `TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteUserName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -383,13 +383,13 @@ export class PostgresBackend implements SQLBackend {
                 .toLowerCase();
 
               out.push(
-                `CREATE POLICY ${policyName} ON ${this.quoteTableName(
+                `CREATE POLICY ${this.quoteIdentifier(
+                  policyName,
+                )} ON ${this.quoteTableName(
                   permission.table,
-                )} ` +
-                  `AS RESTRICTIVE FOR SELECT TO ${this.quoteUserName(
-                    permission.user,
-                  )} ` +
-                  `USING (${this.clauseToSql(permission.rowClause)});`,
+                )} AS RESTRICTIVE FOR SELECT TO ${this.quoteUserName(
+                  permission.user,
+                )} USING (${this.clauseToSql(permission.rowClause)});`,
               );
             }
             return out;
@@ -398,7 +398,7 @@ export class PostgresBackend implements SQLBackend {
             const out = [
               `GRANT INSERT${columnPart} ON ${this.quoteTableName(
                 permission.table,
-              )} ` + `TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteUserName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -411,13 +411,13 @@ export class PostgresBackend implements SQLBackend {
                 .toLowerCase();
 
               out.push(
-                `CREATE POLICY ${policyName} ON ${this.quoteTableName(
+                `CREATE POLICY ${this.quoteIdentifier(
+                  policyName,
+                )} ON ${this.quoteTableName(
                   permission.table,
-                )} ` +
-                  `AS RESTRICTIVE FOR INSERT TO ${this.quoteUserName(
-                    permission.user,
-                  )} ` +
-                  `WITH CHECK (${this.clauseToSql(permission.rowClause)});`,
+                )} AS RESTRICTIVE FOR INSERT TO ${this.quoteUserName(
+                  permission.user,
+                )} WITH CHECK (${this.clauseToSql(permission.rowClause)});`,
               );
             }
             return out;
@@ -426,7 +426,7 @@ export class PostgresBackend implements SQLBackend {
             const out = [
               `GRANT UPDATE${columnPart} ON ${this.quoteTableName(
                 permission.table,
-              )} ` + `TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteUserName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -439,13 +439,13 @@ export class PostgresBackend implements SQLBackend {
                 .toLowerCase();
 
               out.push(
-                `CREATE POLICY ${policyName} ON ${this.quoteTableName(
+                `CREATE POLICY ${this.quoteIdentifier(
+                  policyName,
+                )} ON ${this.quoteTableName(
                   permission.table,
-                )} ` +
-                  `AS RESTRICTIVE FOR UPDATE TO ${this.quoteUserName(
-                    permission.user,
-                  )} ` +
-                  `USING (${this.clauseToSql(permission.rowClause)});`,
+                )} AS RESTRICTIVE FOR UPDATE TO ${this.quoteUserName(
+                  permission.user,
+                )} USING (${this.clauseToSql(permission.rowClause)});`,
               );
             }
             return out;
@@ -466,13 +466,13 @@ export class PostgresBackend implements SQLBackend {
                 .toLowerCase();
 
               out.push(
-                `CREATE POLICY ${policyName} ON ${this.quoteTableName(
+                `CREATE POLICY ${this.quoteIdentifier(
+                  policyName,
+                )} ON ${this.quoteTableName(
                   permission.table,
-                )} ` +
-                  `AS RESTRICTIVE FOR DELETE TO ${this.quoteUserName(
-                    permission.user,
-                  )} ` +
-                  `USING (${this.clauseToSql(permission.rowClause)});`,
+                )} AS RESTRICTIVE FOR DELETE TO ${this.quoteUserName(
+                  permission.user,
+                )} USING (${this.clauseToSql(permission.rowClause)});`,
               );
             }
             return out;

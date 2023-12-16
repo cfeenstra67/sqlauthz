@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import "dotenv/config";
 import { Oso } from "oso";
 import pg from "pg";
 import yargs from "yargs";
@@ -10,6 +9,10 @@ import { PostgresBackend } from "./pg-backend.js";
 import { UserRevokePolicy } from "./sql.js";
 
 async function main() {
+  if (!process.env.NO_DOTENV) {
+    await import("dotenv/config");
+  }
+
   const args = await yargs(hideBin(process.argv))
     .scriptName("sqlauthz")
     .usage("$0 [args]", "Declaratively manage PostgreSQL permissions")
