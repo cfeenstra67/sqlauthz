@@ -29,8 +29,8 @@ isInTestGroup("user4");
 
 Currently `sqlauthz` support PostgreSQL as a backend, and it allows you to define:
 
-- Schema permissions (`USAGE`)
-- Table permissions (`SELECT`, `INSERT`, `UPDATE`, `DELETE`), **including column and row-level security**
+- Schema permissions
+- Table permissions **including column and row-level security**
 
 To get started, check out the [Table of Contents](#table-of-contents) below.
 

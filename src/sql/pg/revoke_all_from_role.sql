@@ -30,31 +30,31 @@ begin
             schema_row.schema_name,
             username
         );
-        execute format(
-            'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I FROM %I CASCADE',
-            schema_row.schema_name,
-            username
-        );
+        -- execute format(
+        --     'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I FROM %I CASCADE',
+        --     schema_row.schema_name,
+        --     username
+        -- );
         execute format(
             'REVOKE ALL PRIVILEGES ON SCHEMA %I FROM %I CASCADE',
             schema_row.schema_name,
             username
         );
-        execute format(
-            'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA %I FROM %I CASCADE',
-            schema_row.schema_name,
-            username
-        );
-        execute format(
-            'REVOKE ALL PRIVILEGES ON ALL PROCEDURES IN SCHEMA %I FROM %I CASCADE',
-            schema_row.schema_name,
-            username
-        );
-        execute format(
-            'REVOKE ALL PRIVILEGES ON ALL ROUTINES IN SCHEMA %I FROM %I CASCADE',
-            schema_row.schema_name,
-            username
-        );
+        -- execute format(
+        --     'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA %I FROM %I CASCADE',
+        --     schema_row.schema_name,
+        --     username
+        -- );
+        -- execute format(
+        --     'REVOKE ALL PRIVILEGES ON ALL PROCEDURES IN SCHEMA %I FROM %I CASCADE',
+        --     schema_row.schema_name,
+        --     username
+        -- );
+        -- execute format(
+        --     'REVOKE ALL PRIVILEGES ON ALL ROUTINES IN SCHEMA %I FROM %I CASCADE',
+        --     schema_row.schema_name,
+        --     username
+        -- );
     END LOOP;
 
     return username;
