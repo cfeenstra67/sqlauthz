@@ -435,3 +435,38 @@ describe("test-multi-table-4", async () => {
     });
   }
 });
+
+describe("test-group-1", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const user3 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient1 = dbClientGenerator(dbUrl(user1, "blah", db));
+  const useClient2 = dbClientGenerator(dbUrl(user2, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("group", "group-1", db, {
+      user1,
+      user2,
+      user3,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  for (const [user, useClient] of [
+    ["user1", useClient1],
+    ["user2", useClient2],
+  ] as const) {
+    await it(`${user}: can access test.articles`, async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM test.articles");
+        assert.equal(result.rowCount, 12);
+      });
+    });
+  }
+});

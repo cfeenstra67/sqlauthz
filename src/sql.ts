@@ -19,6 +19,13 @@ export interface SQLUser {
   name: string;
 }
 
+export interface SQLGroup {
+  type: "group";
+  name: string;
+}
+
+export type SQLActor = SQLUser | SQLGroup;
+
 export interface SQLSchema {
   type: "schema";
   name: string;
@@ -43,16 +50,19 @@ export const TablePrivileges = [
   "INSERT",
   "UPDATE",
   "DELETE",
+  "TRUNCATE",
+  "REFERENCES",
+  "TRIGGER",
 ] as const;
 
 export type TablePrivilege = (typeof TablePrivileges)[number];
 
-export const SchemaPrivileges = ["USAGE"] as const;
+export const SchemaPrivileges = ["USAGE", "CREATE"] as const;
 
 export type SchemaPrivilege = (typeof SchemaPrivileges)[number];
 
 export interface BasePermission {
-  user: SQLUser;
+  user: SQLActor;
 }
 
 export interface TablePermission extends BasePermission {

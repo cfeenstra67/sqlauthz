@@ -13,10 +13,10 @@ import {
 } from "./clause.js";
 import {
   Permission,
+  SQLActor,
   SQLSchema,
   SQLTable,
   SQLTableMetadata,
-  SQLUser,
   SchemaPermission,
   TablePermission,
 } from "./sql.js";
@@ -35,6 +35,15 @@ export class PostgresBackend implements SQLBackend {
           usename as "name"
         FROM
           pg_catalog.pg_user
+        WHERE NOT usesuper
+      `,
+    );
+    const groups = await this.client.query<{ name: string }>(
+      `
+        SELECT
+          groname as "name"
+        FROM
+          pg_catalog.pg_group
       `,
     );
     const tables = await this.client.query<{
@@ -55,7 +64,7 @@ export class PostgresBackend implements SQLBackend {
           AND schemaname != 'pg_toast'
       `,
     );
-    const columns = await this.client.query<{
+    const tableColumns = await this.client.query<{
       schema: string;
       table: string;
       name: string;
@@ -134,7 +143,7 @@ export class PostgresBackend implements SQLBackend {
       };
     }
 
-    for (const row of columns.rows) {
+    for (const row of tableColumns.rows) {
       const fullName = `${row.schema}.${row.table}`;
       tableItems[fullName]!.columns.push(row.name);
     }
@@ -145,6 +154,7 @@ export class PostgresBackend implements SQLBackend {
 
     return {
       users: users.rows.map((row) => ({ type: "user", name: row.name })),
+      groups: groups.rows.map((row) => ({ type: "group", name: row.name })),
       schemas: schemas.rows.map((row) => ({ type: "schema", name: row.name })),
       tables: Object.values(tableItems),
       rlsPolicies: policies.rows.map((row) => ({
@@ -175,7 +185,7 @@ export class PostgresBackend implements SQLBackend {
     ].join(".");
   }
 
-  private quoteUserName(user: SQLUser): string {
+  private quoteUserName(user: SQLActor): string {
     return this.quoteIdentifier(user.name);
   }
 
@@ -378,14 +388,22 @@ export class PostgresBackend implements SQLBackend {
             return [
               `GRANT USAGE ON SCHEMA ${this.quoteSchemaName(
                 permission.schema,
-              )} ` + `TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteUserName(permission.user)};`,
             ];
-          default:
+          case "CREATE":
+            return [
+              `GRANT CREATE ON SCHEMA ${this.quoteSchemaName(
+                permission.schema,
+              )} TO ${this.quoteUserName(permission.user)};`,
+            ];
+          default: {
+            const _: never = permission;
             throw new Error(
               `Invalid schema privilege: ${
                 (permission as SchemaPermission).privilege
               };`,
             );
+          }
         }
       case "table": {
         let columnPart = "";
@@ -516,13 +534,36 @@ export class PostgresBackend implements SQLBackend {
             }
             return out;
           }
-          default:
+          case "TRUNCATE":
+            return [
+              `GRANT TRUNCATE ON ${this.quoteTableName(permission.table)} ` +
+                `TO ${this.quoteUserName(permission.user)};`,
+            ];
+          case "TRIGGER":
+            return [
+              `GRANT TRIGGER ON ${this.quoteTableName(permission.table)} ` +
+                `TO ${this.quoteUserName(permission.user)};`,
+            ];
+          case "REFERENCES":
+            return [
+              `GRANT REFERENCES ON ${this.quoteTableName(permission.table)} ` +
+                `TO ${this.quoteUserName(permission.user)};`,
+            ];
+          default: {
+            const _: never = permission;
             throw new Error(
               `Invalid table privilege: ${
                 (permission as TablePermission).privilege
               }`,
             );
+          }
         }
+      }
+      default: {
+        const _: never = permission;
+        throw new Error(
+          `Invalid permission: ${(permission as Permission).type}`,
+        );
       }
     }
   }

@@ -17,9 +17,9 @@ import {
 import { LiteralsContext } from "./oso.js";
 import {
   Permission,
+  SQLActor,
   SQLSchema,
   SQLTableMetadata,
-  SQLUser,
   SchemaPrivilege,
   SchemaPrivileges,
   TablePermission,
@@ -43,17 +43,21 @@ export type ConvertPermissionResult =
   | ConvertPermissionSuccess
   | ConvertPermissionError;
 
-interface UserEvaluatorArgs {
-  user: SQLUser;
+interface ActorEvaluatorArgs {
+  actor: SQLActor;
   debug?: boolean;
 }
 
-function userEvaluator({
-  user,
+function actorEvaluator({
+  actor,
   debug,
-}: UserEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
+}: ActorEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
   const variableName = "actor";
-  const errorVariableName = debug ? `user(${user.name})` : variableName;
+  const errorVariableName = debug
+    ? actor.type === "user"
+      ? `user(${actor.name})`
+      : `group(${actor.name})`
+    : variableName;
   return simpleEvaluator({
     variableName,
     errorVariableName,
@@ -67,7 +71,10 @@ function userEvaluator({
         );
       }
       if (value.value === "_this" || value.value === "_this.name") {
-        return user.name;
+        return actor.name;
+      }
+      if (value.value === "_this.type") {
+        return actor.type;
       }
       throw new ValidationError(
         `${errorVariableName}: invalid user field: ${value.value}`,
@@ -491,17 +498,18 @@ export function convertPermission({
       errors.push("rule does not specify a user");
     }
 
-    const users: SQLUser[] = [];
-    for (const user of entities.users) {
+    const users: SQLActor[] = [];
+    const allActors = (entities.users as SQLActor[]).concat(entities.groups);
+    for (const actor of allActors) {
       const result = evaluateClause({
         clause: actorOr,
-        evaluate: userEvaluator({ user, debug }),
+        evaluate: actorEvaluator({ actor, debug }),
         strictFields,
       });
       if (result.type === "error") {
         errors.push(...result.errors);
       } else if (result.result) {
-        users.push(user);
+        users.push(actor);
       }
     }
 

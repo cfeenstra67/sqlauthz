@@ -1,6 +1,7 @@
 import {
   Permission,
   SQLFunction,
+  SQLGroup,
   SQLRowLevelSecurityPolicy,
   SQLSchema,
   SQLTableMetadata,
@@ -9,6 +10,7 @@ import {
 
 export interface SQLEntities {
   users: SQLUser[];
+  groups: SQLGroup[];
   schemas: SQLSchema[];
   tables: SQLTableMetadata[];
   rlsPolicies: SQLRowLevelSecurityPolicy[];

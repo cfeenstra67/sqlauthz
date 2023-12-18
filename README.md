@@ -119,9 +119,8 @@ _NOTE_: Superuser's permissions cannot be limited using `sqlauthz`, because they
 
 _NOTE_: This API is not stable, and may change significantly within major version 0. This may change in the future.
 
-If you want to embed `sqlauthz` within your application, you can also use it as a library. To do this, first you must do three things:
+If you want to embed `sqlauthz` within your application, you can also use it as a library. To do this, you must do three things:
 - Create an instance of `PostgresBackend`, passing in a `pg.Client` instance.
-- Create an `Oso` instance
 - Call `compileQuery` to compile your query
 - Execute the query
 
@@ -154,11 +153,17 @@ The libary is quite simple, so if you need to do something different you can lik
 
 Top-level rules are written via `allow(actor, action, resource)` declarations. Each of the `actor`, `action`, and `resource` variables has different semantics:
 
-- `actor` - Represents a role in PostgreSQL. Will always be a string. Users must be compared directly, via `actor == "some-user"` or `actor in ["some-user", "some-other-user"]`. User names must exactly match the values you compare them to.
+- `actor` - Represents a **user** or **group** in PostgreSQL. Will always be a string. Users and groups must be compared directly, via `actor == "some-user"` or `actor in ["some-user", "some-other-user"]`. User/group names must exactly match the values you compare them to.
+    - **user** - Can be compared directly with strings e.g. `actor == "my_user"`
+        - `actor.type` - Equal to `"user"`
+    - **group** - Can be compared directly with strings e.g. `actor == "my_group"`
+         - `actor.type` - Equal to `"group"`
 
 - `action` - Will always be a string. Actions must be compared directly, via `action == "some-action"` or `action in ["some-action", "some-other-action"]`. Action names are **case insensitive**, so `SELECT` works exactly the same as `select`. The following privileges are currently supported:
-    - Table permissions - `"select"`, `"insert"`, `"update"`, `"delete"`
-    - Schema permissions - `"usage"`
+    - Table permissions - `"select"`, `"insert"`, `"update"`, `"delete"`, `"truncate"`, `"references"`, `"trigger"`
+        - Row-level security supported for `select`, `insert`, `update`, `delete`
+        - Column-level security supported for `select`, `insert`, `update`
+    - Schema permissions - `"usage"`, `"create"`
 
 - `resource` - This can represent either a **table** or a **schema**. The semantics are different for tables and schema, described below:
     - **table** - Can be compared directly with strings. When comparing directly table names must be schema-qualified. e.g. `resource == "someschema.sometable"`
@@ -278,7 +283,7 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 
 - Currently only supports a limited set of permissions - `USAGE` on schemas as `SELECT`, `UPDATE`, `INSERT`, `DELETE` on tables.
 
-- Currently does not support permissions on views or functions.
+- Currently only supports permissions on tables and schemas (not views, functions, databases).
 
 - Support for using SQL functions in row-level security clauses is imperfect. It works for most cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
     - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
