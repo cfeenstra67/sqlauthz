@@ -1,8 +1,7 @@
 name: Run tests
 
 on:
-  push:
-    branches: [main]
+  push
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -13,11 +12,23 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        node-version: ["18", "20"]
+        include:
+          - node-version: "18"
+            postgres-version: "16"
+          - node-version: "20"
+            postgres-version: "16"
+          - node-version: "20"
+            postgres-version: "15"
+          - node-version: "20"
+            postgres-version: "14"
+          - node-version: "20"
+            postgres-version: "13"
+          - node-version: "20"
+            postgres-version: "12"
 
     services:
       postgres:
-        image: postgres
+        image: postgres:${{ matrix.postgres-version }}
         env:
           POSTGRES_PASSWORD: password
           POSTGRES_DB: db

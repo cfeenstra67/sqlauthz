@@ -1,4 +1,4 @@
-import { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
+import { SQLBackendContext, SQLEntities } from "./backend.js";
 import { Clause } from "./clause.js";
 
 export interface SQLTable {
@@ -7,7 +7,9 @@ export interface SQLTable {
   name: string;
 }
 
-export interface SQLTableMetadata extends SQLTable {
+export interface SQLTableMetadata {
+  type: "table-metadata";
+  table: SQLTable;
   rlsEnabled: boolean;
   columns: string[];
 }
@@ -27,6 +29,13 @@ export interface SQLRowLevelSecurityPolicy {
   name: string;
   table: SQLTable;
   users: SQLUser[];
+}
+
+export interface SQLFunction {
+  type: "function";
+  schema: string;
+  name: string;
+  builtin: boolean;
 }
 
 export const TablePrivileges = [

@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import pg from "pg";
-import { createOso } from "../src/oso.js";
-import { CompileQueryArgs, compileQuery } from "../src/parser.js";
+import { CompileQueryArgs, compileQuery } from "../src/api.js";
+import { CreateOsoArgs } from "../src/oso.js";
 import { PostgresBackend } from "../src/pg-backend.js";
 
 const TestDir = url.fileURLToPath(new URL(".", import.meta.url));
@@ -87,13 +87,8 @@ export async function setupEnv(
   rules: string,
   db: string,
   vars: Record<string, string>,
-  opts?: Omit<CompileQueryArgs, "oso" | "backend">,
-) {
-  const oso = await createOso({
-    paths: [rulesFile(rules)],
-    vars,
-  });
-
+  opts?: Omit<CompileQueryArgs, keyof CreateOsoArgs | "backend">,
+): Promise<() => Promise<void>> {
   const [setup, teardown] = await loadEnv(env, vars);
 
   const client = new pg.Client(rootDbUrl);
@@ -122,7 +117,8 @@ export async function setupEnv(
     const backend = new PostgresBackend(backendClient);
     const result = await compileQuery({
       backend,
-      oso,
+      paths: [rulesFile(rules)],
+      vars,
       ...opts,
     });
 

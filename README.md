@@ -15,13 +15,13 @@ allow("user1", action, resource)
     if action in ["select"]
     and resource == "myschema.mytable"
     and resource.col in ["id", "othercolumn"]
-    and resource.row.owner = "owner1";
+    and resource.row.owner == "owner1";
 
 # Give `user2`, `user3`, and `user4` `USAGE` on the `test` schema
 # And all permissions on all tables within the `test` schema
 allow(actor, _, resource)
     if isInTestGroup(actor)
-    and resource.schema = "test";
+    and resource.schema == "test";
     
 isInTestGroup(user) if user in ["user2", "user3"];
 isInTestGroup("user4");
@@ -43,6 +43,7 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
     - [User revoke strategies](#user-revoke-strategies)
 - [Using `sqlauthz` as a library](#using-sqlauthz-as-a-library)
 - [Writing rules](#writing-rules)
+    - [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses)
 - [Incremental Adoption](#incremental-adoption)
 - [Examples](#examples)
     - [Grant a user all permissions on all schemas](#grant-a-user-all-permissions-on-all-schemas)
@@ -63,7 +64,7 @@ You may not want to install it as a development dependency if you plan on using 
 
 ## Compatilibity
 
-`sqlauthz` is tested and compatible with node 18+.
+`sqlauthz` has automated testing in place and is compatible with node 18 and 20, and PostgreSQL versions 12-16. It may be compatible with older versions of either, but it has not been tested.
 
 ## CLI
 
@@ -116,6 +117,8 @@ _NOTE_: Superuser's permissions cannot be limited using `sqlauthz`, because they
 
 ## Using `sqlauthz` as a library
 
+_NOTE_: This API is not stable, and may change significantly within major version 0. This may change in the future.
+
 If you want to embed `sqlauthz` within your application, you can also use it as a library. To do this, first you must do three things:
 - Create an instance of `PostgresBackend`, passing in a `pg.Client` instance.
 - Create an `Oso` instance
@@ -126,7 +129,6 @@ Here's a simple usage example:
 ```typescript
 import pg from 'pg';
 import {
-  createOso,
   PostgresBackend,
   compileQuery
 } from 'sqlauthz';
@@ -136,7 +138,7 @@ await client.connect();
 
 const result = await compileQuery({
   backend: new PostgresBackend(client),
-  oso: await createOso({ paths: ['./my-rules-file.polar'] }),
+  paths: ['./my-rules-file.polar']
 });
 if (result.type === 'success') {
   await client.query(result.query);
@@ -159,12 +161,12 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
     - Schema permissions - `"usage"`
 
 - `resource` - This can represent either a **table** or a **schema**. The semantics are different for tables and schema, described below:
-    - **table** - Can be compared directly with strings. When comparing directly table names must be fully qualified. e.g. `resource == "someschema.sometable"`
+    - **table** - Can be compared directly with strings. When comparing directly table names must be schema-qualified. e.g. `resource == "someschema.sometable"`
         - `resource.type` - Equal to `"table"`, e.g. `resource.type == "table"`
         - `resource.name` - The table name, without schema, e.g. `resource.name == "sometable"`
         - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
         - `resource.col` - Filter which columns the permission applies to, e.g. `resource.col in ["col1", "col2"]`
-        - `resource.row.<col>` - Filter which rows the permission applies to via row-level security policies, e.g. `resource.row.id = 12`.
+        - `resource.row.<col>` - Filter which rows the permission applies to via row-level security policies, e.g. `resource.row.id == 12`.
     - **schema** - Cab be compared directly with strings, e.g. `resource == "someschema"`
         - `resource.type` - Equal to `"schema"`, e.g. `resource.type == "schema"`
         - `resource.name` - Equal to the schema name, e.g. `resource.name == "someschema"`
@@ -173,6 +175,41 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
 For a full explanation of polar semantics, you can read the [Polar Documentation](https://www.osohq.com/docs/reference/polar/foundations).
 
 For complete examples of how rules look in practice, consult the [examples](#examples).
+
+### Using SQL functions in row-level security clauses
+
+`sqlauthz` supports using SQL functions in row-level security clauses, though there are some [limitations](#limitations). In order to use `sql` functions, you must use the syntax of `sql.<function_name>`. For example:
+
+```polar
+allow("bob", "select", table)
+    if table == "my.table"
+    and table.row.owner_id == sql.current_setting("my.custom.setting");
+```
+You can also use SQL functions that take columns as input. For example:
+```polar
+allow("bob", "select", table)
+    if table == "my.table"
+    and table.row.created_at == sql.date_trunc("day", table.row.updated_at);
+```
+You can also nest SQL function calls:
+```polar
+allow("bob", "select", table)
+    if table == "my.table"
+    and table.row.created_at == sql.date_trunc("day", sql.now());
+```
+You should be able to use any SQL function that is available in your database. You can also use schema-qualified functions for those that are not built in:
+```polar
+allow("bob", "select", table)
+    if table == "my.table"
+    and table.row.id == sql.my.function(table.row.owner_id);
+```
+
+Note that while this should work fine for simple row-level security policies, but if you try to do something arbitrary complex you may run into issues. Please [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) if you do. One known limitation is that operating on a literal and a function call with a column on an input will require you to use the `sql.lit` helper function to declare the literal:
+```polar
+allow("bob", "select", table)
+    if table == "my.table"
+    and sql.date_trunc("day", table.row.updated_at) == sql.lit("2023-01-01T00:00:00");
+```
 
 ## Incremental Adoption
 
@@ -221,7 +258,7 @@ allow("bob", action, resource)
 ```polar
 allow("bob", "select", resource)
     if resource == "api.mytable"
-    and (resource.row.mycol = "abc" or resource.row.mycol2 < 12)
+    and (resource.row.mycol == "abc" or resource.row.mycol2 < 12)
     and resource.row.col in ["mycol", "mycol3"];
 ```
 
@@ -243,7 +280,11 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 
 - Currently does not support permissions on views or functions.
 
-- Currently does not support using PostgreSQL functions in row-level security clauses e.g. `owner = get_config('current_user')`
+- Support for using SQL functions in row-level security clauses is imperfect. It works for most cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
+    - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
+    - When writing a clause that operates on the result of a function call and a literal, you will have to use the `sql.lit` helper to declare the literal. E.g. rather than `sql.date_trunc("hour", table.row.created_at) == "2023-01-01T00:00:00"` you would have to write `sql.date_trunc("hour", table.row.created_at) == sql.lit("2023-01-01T00:00:00")`.
+
+- Currently there is no way to use joins or select from other tables in row-level security queries.
 
 - At the moment will only grant permissions on objects that exist in the database at the time of applying permissions. For example, if you write a rule that allows access to all objects within a schema, `sqlauthz` will generate a `GRANT` query for each one of those objects individual rather than one with `FOR ALL TABLES IN SCHEMA <schema>`.
 

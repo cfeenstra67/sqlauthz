@@ -1,5 +1,6 @@
 import {
   Permission,
+  SQLFunction,
   SQLRowLevelSecurityPolicy,
   SQLSchema,
   SQLTableMetadata,
@@ -11,6 +12,7 @@ export interface SQLEntities {
   schemas: SQLSchema[];
   tables: SQLTableMetadata[];
   rlsPolicies: SQLRowLevelSecurityPolicy[];
+  functions: SQLFunction[];
 }
 
 export interface SQLBackendContext {

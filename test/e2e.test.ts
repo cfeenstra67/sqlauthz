@@ -85,6 +85,98 @@ describe("test-basic-2-no-table-access", async () => {
   });
 });
 
+describe("test-basic-4-function-call", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("basic", "basic-4", db, { user1, user2 });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  for (const author of ["Author A", "Author B", "Author C"]) {
+    await it(`user1: RLS works with current author of ${author}`, async () => {
+      await useClient(async (client) => {
+        await client.query(`SET SESSION my.author TO '${author}'`);
+        const result = await client.query<{ author: string }>(
+          "SELECT author FROM test.articles",
+        );
+        assert.equal(result.rowCount, 4);
+        for (const row of result.rows) {
+          assert.equal(row.author, author);
+        }
+      });
+    });
+  }
+
+  await it("user1: fails without author set", async () => {
+    await useClient(async (client) => {
+      await assert.rejects(client.query("SELECT author FROM test.articles"), {
+        message: 'unrecognized configuration parameter "my.author"',
+      });
+    });
+  });
+});
+
+describe("test-basic-5-function-call", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("basic", "basic-5", db, { user1, user2 });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: can access one row", async () => {
+    await useClient(async (client) => {
+      const result = await client.query<{ author: string }>(
+        "SELECT * FROM test.articles",
+      );
+      assert.equal(result.rowCount, 1);
+    });
+  });
+});
+
+describe("test-basic-6-function-call", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("basic", "basic-6", db, { user1, user2 });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: can access one row", async () => {
+    await useClient(async (client) => {
+      const result = await client.query<{ author: string }>(
+        "SELECT * FROM test.articles",
+      );
+      assert.equal(result.rowCount, 1);
+    });
+  });
+});
+
 describe("test-multi-table-1-full-access", async () => {
   const user1 = userNameGenerator();
   const user2 = userNameGenerator();

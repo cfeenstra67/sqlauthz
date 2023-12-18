@@ -1,10 +1,11 @@
 import { Oso, Variable } from "oso";
-import { SQLBackend, SQLEntities } from "./backend.js";
+import { SQLEntities } from "./backend.js";
 import {
   Clause,
   Column,
   EvaluateClauseArgs,
   ValidationError,
+  Value,
   evaluateClause,
   factorOrClauses,
   isTrueClause,
@@ -13,6 +14,7 @@ import {
   simpleEvaluator,
   valueToClause,
 } from "./clause.js";
+import { LiteralsContext } from "./oso.js";
 import {
   Permission,
   SQLSchema,
@@ -23,8 +25,6 @@ import {
   TablePermission,
   TablePrivilege,
   TablePrivileges,
-  UserRevokePolicy,
-  constructFullQuery,
   formatTableName,
 } from "./sql.js";
 import { arrayProduct } from "./utils.js";
@@ -60,6 +60,11 @@ function userEvaluator({
     getValue: (value) => {
       if (value.type === "value") {
         return value.value;
+      }
+      if (value.type === "function-call") {
+        throw new ValidationError(
+          `${errorVariableName}: invalid function call`,
+        );
       }
       if (value.value === "_this" || value.value === "_this.name") {
         return user.name;
@@ -104,11 +109,9 @@ function tableEvaluator({
   debug,
   strictFields,
 }: TableEvaluatorArgs): TableEvaluatorResult {
-  const tableName = formatTableName(table);
+  const tableName = formatTableName(table.table);
   const variableName = "resource";
-  const errorVariableName = debug
-    ? `table(${formatTableName(table)})`
-    : variableName;
+  const errorVariableName = debug ? `table(${tableName})` : variableName;
 
   const metaEvaluator = simpleEvaluator({
     variableName,
@@ -117,14 +120,19 @@ function tableEvaluator({
       if (value.type === "value") {
         return value.value;
       }
+      if (value.type === "function-call") {
+        throw new ValidationError(
+          `${errorVariableName}: invalid function call`,
+        );
+      }
       if (value.value === "_this") {
         return tableName;
       }
       if (value.value === "_this.name") {
-        return table.name;
+        return table.table.name;
       }
       if (value.value === "_this.schema") {
-        return table.schema;
+        return table.table.schema;
       }
       if (value.value === "_this.type") {
         return table.type;
@@ -166,6 +174,35 @@ function tableEvaluator({
         if (value.type === "value") {
           continue;
         }
+        if (value.type === "function-call") {
+          const someCol = value.args.some((arg) => isColumnClause(arg));
+          if (someCol) {
+            colCount++;
+          }
+          continue;
+        }
+        const spec = getColumnSpecifier(value);
+        if (spec && spec.type === "col") {
+          colCount++;
+          continue;
+        }
+        return false;
+      }
+      return colCount > 0;
+    }
+    if (clause.type === "function-call") {
+      let colCount = 0;
+      for (const value of clause.args) {
+        if (value.type === "value") {
+          continue;
+        }
+        if (value.type === "function-call") {
+          const someCol = value.args.some((arg) => isColumnClause(arg));
+          if (someCol) {
+            colCount++;
+          }
+          continue;
+        }
         const spec = getColumnSpecifier(value);
         if (spec && spec.type === "col") {
           colCount++;
@@ -186,6 +223,35 @@ function tableEvaluator({
       let colCount = 0;
       for (const value of clause.values) {
         if (value.type === "value") {
+          continue;
+        }
+        if (value.type === "function-call") {
+          const someCol = value.args.some((arg) => isRowClause(arg));
+          if (someCol) {
+            colCount++;
+          }
+          continue;
+        }
+        const spec = getColumnSpecifier(value);
+        if (spec && spec.type === "row") {
+          colCount++;
+          continue;
+        }
+        return false;
+      }
+      return colCount > 0;
+    }
+    if (clause.type === "function-call") {
+      let colCount = 0;
+      for (const value of clause.args) {
+        if (value.type === "value") {
+          continue;
+        }
+        if (value.type === "function-call") {
+          const someCol = value.args.some((arg) => isRowClause(arg));
+          if (someCol) {
+            colCount++;
+          }
           continue;
         }
         const spec = getColumnSpecifier(value);
@@ -304,6 +370,11 @@ function schemaEvaluator({
       if (value.type === "value") {
         return value.value;
       }
+      if (value.type === "function-call") {
+        throw new ValidationError(
+          `${errorVariableName}: invalid function call`,
+        );
+      }
       if (
         value.value === "_this" ||
         value.value === "_this.name" ||
@@ -337,6 +408,11 @@ function permissionEvaluator({
     variableName,
     errorVariableName,
     getValue: (value) => {
+      if (value.type === "function-call") {
+        throw new ValidationError(
+          `${errorVariableName}: invalid function call`,
+        );
+      }
       if (value.type === "value" && typeof value.value === "string") {
         return value.value.toUpperCase();
       }
@@ -359,6 +435,7 @@ export interface ConvertPermissionArgs {
   allowAnyActor?: boolean;
   strictFields?: boolean;
   debug?: boolean;
+  literals: Map<string, Value>;
 }
 
 function isIdentityClause(clause: Clause, variable: string): boolean {
@@ -371,14 +448,29 @@ export function convertPermission({
   allowAnyActor,
   strictFields,
   debug,
+  literals,
 }: ConvertPermissionArgs): ConvertPermissionResult {
   const resource = result.get("resource");
   const action = result.get("action");
   const actor = result.get("actor");
 
-  const actorClause = valueToClause(actor);
-  const actionClause = valueToClause(action);
-  const resourceClause = valueToClause(resource);
+  const getClause = (arg: unknown): Clause => {
+    const clause = valueToClause(arg);
+    return mapClauses(clause, (subClause) => {
+      if (subClause.type !== "column") {
+        return subClause;
+      }
+      const literal = literals.get(subClause.value);
+      if (!literal) {
+        return subClause;
+      }
+      return literal;
+    });
+  };
+
+  const actorClause = getClause(actor);
+  const actionClause = getClause(action);
+  const resourceClause = getClause(resource);
 
   const actorOrs = factorOrClauses(actorClause);
   const actionOrs = factorOrClauses(actionClause);
@@ -491,7 +583,7 @@ export function convertPermission({
           ])) {
             permissions.push({
               type: "table",
-              table: { type: "table", schema: table.schema, name: table.name },
+              table: table.table,
               user,
               privilege,
               columnClause: result.columnClause,
@@ -522,6 +614,7 @@ export interface ParsePermissionsArgs {
   allowAnyActor?: boolean;
   strictFields?: boolean;
   debug?: boolean;
+  literalsContext: LiteralsContext;
 }
 
 export async function parsePermissions({
@@ -530,46 +623,50 @@ export async function parsePermissions({
   allowAnyActor,
   strictFields,
   debug,
+  literalsContext,
 }: ParsePermissionsArgs): Promise<ConvertPermissionResult> {
-  const result = oso.queryRule(
-    {
-      acceptExpression: true,
-    },
-    "allow",
-    new Variable("actor"),
-    new Variable("action"),
-    new Variable("resource"),
-  );
+  return await literalsContext.use(async () => {
+    const result = oso.queryRule(
+      {
+        acceptExpression: true,
+      },
+      "allow",
+      new Variable("actor"),
+      new Variable("action"),
+      new Variable("resource"),
+    );
 
-  const permissions: Permission[] = [];
-  const errors: string[] = [];
+    const permissions: Permission[] = [];
+    const errors: string[] = [];
 
-  for await (const item of result) {
-    const result = convertPermission({
-      result: item,
-      entities,
-      allowAnyActor,
-      strictFields,
-      debug,
-    });
-    if (result.type === "success") {
-      permissions.push(...result.permissions);
-    } else {
-      errors.push(...result.errors);
+    for await (const item of result) {
+      const result = convertPermission({
+        result: item,
+        entities,
+        allowAnyActor,
+        strictFields,
+        debug,
+        literals: literalsContext.get(),
+      });
+      if (result.type === "success") {
+        permissions.push(...result.permissions);
+      } else {
+        errors.push(...result.errors);
+      }
     }
-  }
 
-  if (errors.length > 0) {
+    if (errors.length > 0) {
+      return {
+        type: "error",
+        errors: Array.from(new Set(errors)),
+      };
+    }
+
     return {
-      type: "error",
-      errors: Array.from(new Set(errors)),
+      type: "success",
+      permissions,
     };
-  }
-
-  return {
-    type: "success",
-    permissions,
-  };
+  });
 }
 
 export function deduplicatePermissions(
@@ -628,73 +725,4 @@ export function deduplicatePermissions(
   }
 
   return outPermissions;
-}
-
-export interface CompileQueryArgs {
-  backend: SQLBackend;
-  oso: Oso;
-  userRevokePolicy?: UserRevokePolicy;
-  includeSetupAndTeardown?: boolean;
-  includeTransaction?: boolean;
-  entities?: SQLEntities;
-  strictFields?: boolean;
-  allowAnyActor?: boolean;
-  debug?: boolean;
-}
-
-export interface CompilePermissionsSuccess {
-  type: "success";
-  query: string;
-}
-
-export interface CompilePermissionsError {
-  type: "error";
-  errors: string[];
-}
-
-export type CompilePermissionsResult =
-  | CompilePermissionsSuccess
-  | CompilePermissionsError;
-
-export async function compileQuery({
-  backend,
-  oso,
-  entities,
-  userRevokePolicy,
-  includeSetupAndTeardown,
-  includeTransaction,
-  debug,
-  strictFields,
-  allowAnyActor,
-}: CompileQueryArgs): Promise<CompilePermissionsResult> {
-  if (entities === undefined) {
-    entities = await backend.fetchEntities();
-  }
-
-  const result = await parsePermissions({
-    oso,
-    entities,
-    debug,
-    strictFields,
-    allowAnyActor,
-  });
-
-  if (result.type !== "success") {
-    return result;
-  }
-
-  const context = await backend.getContext(entities);
-
-  const permissions = deduplicatePermissions(result.permissions);
-
-  const fullQuery = constructFullQuery({
-    entities,
-    context,
-    permissions,
-    userRevokePolicy,
-    includeSetupAndTeardown,
-    includeTransaction,
-  });
-
-  return { type: "success", query: fullQuery };
 }

@@ -1,10 +1,8 @@
 #!/usr/bin/env node
-import { Oso } from "oso";
 import pg from "pg";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { createOso } from "./oso.js";
-import { compileQuery } from "./parser.js";
+import { compileQuery } from "./api.js";
 import { PostgresBackend } from "./pg-backend.js";
 import { UserRevokePolicy } from "./sql.js";
 
@@ -98,16 +96,6 @@ async function main() {
     userRevokePolicy = { type: "referenced" };
   }
 
-  let oso: Oso;
-  try {
-    oso = await createOso({
-      paths: args.rules,
-    });
-  } catch (error) {
-    console.error(`${error}`);
-    process.exit(1);
-  }
-
   const client = new pg.Client(args.databaseUrl);
   try {
     await client.connect();
@@ -116,11 +104,12 @@ async function main() {
     process.exit(1);
   }
 
+  const backend = new PostgresBackend(client);
+
   try {
-    const backend = new PostgresBackend(client);
     const query = await compileQuery({
       backend,
-      oso,
+      paths: args.rules,
       userRevokePolicy,
       allowAnyActor: args.allowAnyActor,
       includeSetupAndTeardown: !args.dryRunShort,

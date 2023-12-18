@@ -1,6 +1,7 @@
 import { Variable } from "oso";
 import { Expression } from "oso/dist/src/Expression.js";
 import { Pattern } from "oso/dist/src/Pattern.js";
+import { Predicate } from "oso/dist/src/Predicate.js";
 
 export function printExpression(obj: unknown): string {
   const prefix = "  ";
@@ -19,6 +20,15 @@ export function printExpression(obj: unknown): string {
   }
   if (obj instanceof Variable) {
     return `var(${obj.name})`;
+  }
+  if (obj instanceof Predicate) {
+    const lines: string[] = [`${obj.name}:`];
+    for (const arg of obj.args) {
+      const output = printExpression(arg).split("\n");
+      const withPrefix = output.map((line) => prefix + line);
+      lines.push(...withPrefix);
+    }
+    return lines.join("\n");
   }
   // biome-ignore lint/suspicious/noExplicitAny: debugging code
   return (obj as any).toString();

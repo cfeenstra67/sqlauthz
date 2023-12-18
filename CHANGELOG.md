@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Support for SQL functions in row-level security clauses, with a few limitations.
+
 ## [0.1.2] - 2023-12-16
 
 ### Added

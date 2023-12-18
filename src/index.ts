@@ -1,3 +1,2 @@
-export { createOso } from "./oso.js";
-export { compileQuery } from "./parser.js";
+export { compileQuery } from "./api.js";
 export { PostgresBackend } from "./pg-backend.js";

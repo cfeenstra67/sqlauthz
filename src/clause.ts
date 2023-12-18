@@ -1,6 +1,8 @@
 import { Variable } from "oso";
 import { Expression } from "oso/dist/src/Expression.js";
 import { Pattern } from "oso/dist/src/Pattern.js";
+import { Predicate } from "oso/dist/src/Predicate.js";
+import { PolarOperator } from "oso/dist/src/types.js";
 import { arrayProduct } from "./utils.js";
 
 export interface Literal {
@@ -8,16 +10,23 @@ export interface Literal {
   readonly value: unknown;
 }
 
+export interface FunctionCall {
+  readonly type: "function-call";
+  readonly schema: string;
+  readonly name: string;
+  readonly args: Value[];
+}
+
 export interface Column {
   readonly type: "column";
   readonly value: string;
 }
 
-export type Value = Literal | Column;
+export type Value = Literal | Column | FunctionCall;
 
 export interface ExpressionClause {
   readonly type: "expression";
-  readonly operator: Expression["operator"];
+  readonly operator: PolarOperator;
   readonly values: readonly [Value, Value];
 }
 
@@ -86,7 +95,7 @@ export function mapClauses(
     });
   }
   if (clause.type === "expression") {
-    const newValues = clause.values.map((value) => func(value)) as [
+    const newValues = clause.values.map((value) => mapClauses(value, func)) as [
       Value,
       Value,
     ];
@@ -94,6 +103,15 @@ export function mapClauses(
       type: "expression",
       operator: clause.operator,
       values: newValues,
+    });
+  }
+  if (clause.type === "function-call") {
+    const values = clause.args.map((arg) => mapClauses(arg, func)) as Value[];
+    return func({
+      type: "function-call",
+      schema: clause.schema,
+      name: clause.name,
+      args: values,
     });
   }
   return func(clause);
@@ -130,6 +148,14 @@ function clausesEqual(clause1: Clause, clause2: Clause): boolean {
     (clause1.type === "column" && clause2.type === "column")
   ) {
     return clause1.value === clause2.value;
+  }
+  if (clause1.type === "function-call" && clause2.type === "function-call") {
+    return (
+      clause1.name === clause2.name &&
+      clause1.schema === clause2.schema &&
+      clause1.args.length === clause2.args.length &&
+      clause1.args.every((arg, idx) => arg === clause2.args[idx])
+    );
   }
   return false;
 }
@@ -273,6 +299,11 @@ export function valueToClause(value: unknown): Clause {
       const src = args[0] as Value | AndClause;
       const name = args[1] as Value;
 
+      // TODO: is this the right behavior?
+      if (src.type === "function-call" || name.type === "function-call") {
+        throw new Error("Unexpected function call");
+      }
+
       if (src.type === "and") {
         const col = src.clauses[0] as Column;
         const newCol: Column = {
@@ -350,6 +381,32 @@ export function valueToClause(value: unknown): Clause {
   if (value instanceof Pattern) {
     // TODO
     return TrueClause;
+  }
+  if (value instanceof Predicate) {
+    const [schema, name] = value.name.split(".");
+    const clauses: Clause[] = [];
+    const args: Value[] = [];
+    for (const arg of value.args) {
+      const subClause = valueToClause(arg) as Value | AndClause;
+      if (subClause.type === "and") {
+        args.push(subClause.clauses[0] as Value);
+        clauses.push(...subClause.clauses.slice(1));
+      } else {
+        args.push(subClause);
+      }
+    }
+
+    const newClause: FunctionCall = {
+      type: "function-call",
+      schema: schema!,
+      name: name!,
+      args,
+    };
+
+    if (clauses.length > 0) {
+      return { type: "and", clauses: [newClause, ...clauses] };
+    }
+    return newClause;
   }
 
   return { type: "value", value };
@@ -491,6 +548,13 @@ export function simpleEvaluator({
         operator: "Eq",
         values: [{ type: "column", value: "_this" }, expr],
       });
+    }
+    if (expr.type === "function-call") {
+      // TODO: is this the right behavior?
+      return {
+        type: "error",
+        errors: [`${errorVariableName}: unexpected function call`],
+      };
     }
     let operatorFunc: (a: unknown, b: unknown) => boolean;
     if (expr.operator === "Eq") {

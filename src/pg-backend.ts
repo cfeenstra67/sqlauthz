@@ -105,14 +105,30 @@ export class PostgresBackend implements SQLBackend {
           AND schemaname != 'pg_toast'
       `,
     );
+    const functions = await this.client.query<{
+      schema: string;
+      name: string;
+      builtin: boolean;
+    }>(
+      `
+        SELECT
+          n.nspname as "schema",
+          p.proname as "name",
+          n.nspname = 'pg_catalog' as "builtin"
+        FROM
+          pg_catalog.pg_proc p
+          LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        WHERE
+          pg_catalog.pg_function_is_visible(p.oid);
+      `,
+    );
 
     const tableItems: Record<string, SQLTableMetadata> = {};
     for (const table of tables.rows) {
       const fullName = `${table.schema}.${table.name}`;
       tableItems[fullName] = {
-        type: "table",
-        name: table.name,
-        schema: table.schema,
+        type: "table-metadata",
+        table: { type: "table", name: table.name, schema: table.schema },
         rlsEnabled: table.rlsEnabled,
         columns: [],
       };
@@ -140,6 +156,7 @@ export class PostgresBackend implements SQLBackend {
           name: user,
         })),
       })),
+      functions: functions.rows.map((row) => ({ type: "function", ...row })),
     };
   }
 
@@ -224,7 +241,10 @@ export class PostgresBackend implements SQLBackend {
       },
       compileGrantQueries: (permissions, entities) => {
         const metaByTable = Object.fromEntries(
-          entities.tables.map((table) => [this.quoteTableName(table), table]),
+          entities.tables.map((table) => [
+            this.quoteTableName(table.table),
+            table,
+          ]),
         );
 
         const tablesToAddRlsTo = new Set<string>();
@@ -267,18 +287,30 @@ export class PostgresBackend implements SQLBackend {
       variableName: "col",
       errorVariableName: "col",
       getValue: (value) => {
+        if (value.type === "function-call") {
+          throw new ValidationError("col: invalid function call");
+        }
         if (value.type === "value") {
           return value.value;
         }
         if (value.value === "col") {
           return column;
         }
-        throw new ValidationError(`Invalid clause value: ${value.value}`);
+        throw new ValidationError(`col: invalid clause value: ${value.value}`);
       },
     });
 
     const result = evaluateClause({ clause, evaluate });
     return result.type === "success" && result.result;
+  }
+
+  private valueToSql(value: unknown): string {
+    if (typeof value === "string") {
+      // TODO: need to do proper quoting here, probably
+      // need to actually use parameters ultimately
+      return `'${value.replaceAll("'", "\\'")}'`;
+    }
+    return JSON.stringify(value);
   }
 
   private clauseToSql(clause: Clause): string {
@@ -322,10 +354,17 @@ export class PostgresBackend implements SQLBackend {
     if (clause.type === "column") {
       return this.quoteIdentifier(clause.value);
     }
+    if (clause.type === "function-call") {
+      const name = `${this.quoteIdentifier(
+        clause.schema,
+      )}.${this.quoteIdentifier(clause.name)}`;
+      const args = clause.args.map((arg) => this.clauseToSql(arg));
+      return `${name}(${args.join(", ")})`;
+    }
     if (typeof clause.value === "string") {
       return `'${clause.value}'`;
     }
-    return JSON.stringify(clause.value);
+    return this.valueToSql(clause.value);
   }
 
   private compileGrantQuery(
@@ -353,8 +392,8 @@ export class PostgresBackend implements SQLBackend {
         if (!isTrueClause(permission.columnClause)) {
           const table = entities.tables.filter(
             (table) =>
-              table.schema === permission.table.schema &&
-              table.name === permission.table.name,
+              table.table.schema === permission.table.schema &&
+              table.table.name === permission.table.name,
           )[0]!;
           const columnNames = table.columns.filter((column) =>
             this.evalColumnQuery(permission.columnClause, column),
