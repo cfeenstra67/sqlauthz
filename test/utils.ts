@@ -94,25 +94,43 @@ export async function setupEnv(
   const client = new pg.Client(rootDbUrl);
   const backendClient = new pg.Client(dbUrl(rootUser, rootPassword, db));
 
-  const teardowns: (() => Promise<void>)[] = [];
+  const teardowns: [string, () => Promise<void>][] = [];
   const teardownFunc = async () => {
-    await Promise.allSettled([...teardowns].reverse().map((func) => func()));
+    let errors = 0;
+    for (const [name, func] of teardowns) {
+      try {
+        await func();
+      } catch (error) {
+        errors++;
+        console.error(`Error in teardown: ${name}`, error);
+      }
+    }
+    if (errors > 0) {
+      throw new Error("Teardowns failed");
+    }
   };
 
   try {
     await client.connect();
-    teardowns.push(() => client.end());
+    teardowns.push(["Close root client", () => client.end()]);
     await client.query(`CREATE DATABASE ${db}`);
-    teardowns.push(async () => {
-      await client.query(`DROP DATABASE ${db}`);
-    });
 
     await backendClient.connect();
-    teardowns.push(() => backendClient.end());
     await backendClient.query(setup);
-    teardowns.push(async () => {
-      await backendClient.query(teardown);
-    });
+
+    teardowns.push([
+      "Tear down test objects",
+      async () => {
+        await client.query(teardown);
+      },
+    ]);
+    teardowns.push([
+      "Drop test db",
+      async () => {
+        await client.query(`DROP DATABASE ${db}`);
+      },
+    ]);
+    teardowns.push(["Close backend client", () => backendClient.end()]);
 
     const backend = new PostgresBackend(backendClient);
     const result = await compileQuery({
@@ -128,6 +146,7 @@ export async function setupEnv(
 
     await backendClient.query(result.query);
 
+    teardowns.reverse();
     return teardownFunc;
   } catch (error) {
     await teardownFunc();
