@@ -32,6 +32,7 @@ Currently `sqlauthz` support PostgreSQL as a backend, and it allows you to defin
 - Schema permissions
 - Table permissions **including column and row-level security**
 - View permissions
+- Function and procedure permissions
 
 To get started, check out the [Table of Contents](#table-of-contents) below.
 
