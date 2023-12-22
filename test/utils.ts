@@ -132,6 +132,8 @@ export async function setupEnv(
     ]);
     teardowns.push(["Close backend client", () => backendClient.end()]);
 
+    teardowns.reverse();
+
     const backend = new PostgresBackend(backendClient);
     const result = await compileQuery({
       backend,
@@ -146,7 +148,6 @@ export async function setupEnv(
 
     await backendClient.query(result.query);
 
-    teardowns.reverse();
     return teardownFunc;
   } catch (error) {
     await teardownFunc();

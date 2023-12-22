@@ -258,6 +258,7 @@ describe("test-multi-table-1-fails-without-any-user", async () => {
     const user1 = userNameGenerator();
     const user2 = userNameGenerator();
     const db = dbNameGenerator();
+
     await assert.rejects(
       setupEnv("multi-table", "multi-table-1", db, {
         user1,
