@@ -16,9 +16,15 @@ import {
 } from "./clause.js";
 import { LiteralsContext } from "./oso.js";
 import {
+  FunctionPermission,
+  FunctionPrivileges,
   Permission,
   Privilege,
+  ProcedurePermission,
+  ProcedurePrivileges,
   SQLActor,
+  SQLFunction,
+  SQLProcedure,
   SQLSchema,
   SQLTableMetadata,
   SQLView,
@@ -402,41 +408,83 @@ function schemaEvaluator({
   });
 }
 
-interface ViewEvaluatorArgs {
-  view: SQLView;
+interface SimpleSchemaQualifiedObjectEvaluatorFactoryArgs<T> {
+  type: Permission["type"];
+  getName: (obj: T) => string;
+  getSchema: (obj: T) => string;
+}
+
+interface SimpleSchemaQualifiedObjectEvaluatorArgs<T> {
+  obj: T;
   debug?: boolean;
 }
 
-function viewEvaluator({
-  view,
-  debug,
-}: ViewEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
-  const variableName = "resource";
-  const errorVariableName = debug ? `view(${view.name})` : variableName;
-  return simpleEvaluator({
-    variableName,
-    errorVariableName,
-    getValue: (value) => {
-      if (value.type === "value") {
-        return value.value;
-      }
-      if (value.type === "function-call") {
+function simpleSchemaQualifiedObjectEvaluatorFactory<T>({
+  type,
+  getName,
+  getSchema,
+}: SimpleSchemaQualifiedObjectEvaluatorFactoryArgs<T>): (
+  args: SimpleSchemaQualifiedObjectEvaluatorArgs<T>,
+) => EvaluateClauseArgs["evaluate"] {
+  return ({ obj, debug }) => {
+    const variableName = "resource";
+    const schema = getSchema(obj);
+    const name = getName(obj);
+    const qualifiedName = formatQualifiedName(schema, name);
+    const errorVariableName = debug
+      ? `${type}(${qualifiedName})`
+      : variableName;
+    return simpleEvaluator({
+      variableName,
+      errorVariableName,
+      getValue: (value) => {
+        if (value.type === "value") {
+          return value.value;
+        }
+        if (value.type === "function-call") {
+          throw new ValidationError(
+            `${errorVariableName}: invalid function call`,
+          );
+        }
+        if (value.value === "_this") {
+          return qualifiedName;
+        }
+        if (value.value === "_this.name") {
+          return name;
+        }
+        if (value.value === "_this.schema") {
+          return schema;
+        }
+        if (value.value === "_this.type") {
+          return type;
+        }
         throw new ValidationError(
-          `${errorVariableName}: invalid function call`,
+          `${errorVariableName}: invalid view field: ${value.value}`,
         );
-      }
-      if (value.value === "_this" || value.value === "_this.name") {
-        return formatQualifiedName(view.schema, view.name);
-      }
-      if (value.value === "_this.type") {
-        return view.type;
-      }
-      throw new ValidationError(
-        `${errorVariableName}: invalid view field: ${value.value}`,
-      );
-    },
-  });
+      },
+    });
+  };
 }
+
+const viewEvaluator = simpleSchemaQualifiedObjectEvaluatorFactory<SQLView>({
+  type: "view",
+  getName: (obj) => obj.name,
+  getSchema: (obj) => obj.schema,
+});
+
+const functionEvaluator =
+  simpleSchemaQualifiedObjectEvaluatorFactory<SQLFunction>({
+    type: "function",
+    getName: (obj) => obj.name,
+    getSchema: (obj) => obj.schema,
+  });
+
+const procedureEvaluator =
+  simpleSchemaQualifiedObjectEvaluatorFactory<SQLProcedure>({
+    type: "procedure",
+    getName: (obj) => obj.name,
+    getSchema: (obj) => obj.schema,
+  });
 
 interface PermissionEvaluatorArgs {
   permission: string;
@@ -649,7 +697,7 @@ const handlers: Handlers = {
       for (const view of entities.views) {
         const result = evaluateClause({
           clause,
-          evaluate: viewEvaluator({ view, debug }),
+          evaluate: viewEvaluator({ obj: view, debug }),
           strictFields,
         });
         if (result.type === "error") {
@@ -683,6 +731,130 @@ const handlers: Handlers = {
         permission.privilege,
         permission.user.name,
         formatQualifiedName(permission.view.schema, permission.view.name),
+      ].join(",");
+    },
+    deduplicate: (permissions) => {
+      return permissions[0]!;
+    },
+  },
+  function: {
+    privileges: FunctionPrivileges,
+    getPermissions: ({
+      clause,
+      users,
+      privileges,
+      entities,
+      strictFields,
+      debug,
+    }) => {
+      const functions: SQLFunction[] = [];
+      const errors: string[] = [];
+      const permissions: FunctionPermission[] = [];
+      for (const func of entities.functions) {
+        if (func.builtin) {
+          continue;
+        }
+        const result = evaluateClause({
+          clause,
+          evaluate: functionEvaluator({ obj: func, debug }),
+          strictFields,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.result) {
+          functions.push(func);
+        }
+      }
+
+      for (const [user, privilege, func] of arrayProduct([
+        users,
+        privileges,
+        functions,
+      ])) {
+        permissions.push({
+          type: "function",
+          function: func,
+          privilege,
+          user,
+        });
+      }
+
+      if (errors.length > 0) {
+        return { type: "error", errors };
+      }
+      return { type: "success", permissions };
+    },
+    getDeduplicationKey: (permission) => {
+      return [
+        permission.type,
+        permission.privilege,
+        permission.user.name,
+        formatQualifiedName(
+          permission.function.schema,
+          permission.function.name,
+        ),
+      ].join(",");
+    },
+    deduplicate: (permissions) => {
+      return permissions[0]!;
+    },
+  },
+  procedure: {
+    privileges: ProcedurePrivileges,
+    getPermissions: ({
+      clause,
+      users,
+      privileges,
+      entities,
+      strictFields,
+      debug,
+    }) => {
+      const procedures: SQLProcedure[] = [];
+      const errors: string[] = [];
+      const permissions: ProcedurePermission[] = [];
+      for (const proc of entities.procedures) {
+        if (proc.builtin) {
+          continue;
+        }
+        const result = evaluateClause({
+          clause,
+          evaluate: procedureEvaluator({ obj: proc, debug }),
+          strictFields,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.result) {
+          procedures.push(proc);
+        }
+      }
+
+      for (const [user, privilege, proc] of arrayProduct([
+        users,
+        privileges,
+        procedures,
+      ])) {
+        permissions.push({
+          type: "procedure",
+          procedure: proc,
+          privilege,
+          user,
+        });
+      }
+
+      if (errors.length > 0) {
+        return { type: "error", errors };
+      }
+      return { type: "success", permissions };
+    },
+    getDeduplicationKey: (permission) => {
+      return [
+        permission.type,
+        permission.privilege,
+        permission.user.name,
+        formatQualifiedName(
+          permission.procedure.schema,
+          permission.procedure.name,
+        ),
       ].join(",");
     },
     deduplicate: (permissions) => {

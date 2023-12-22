@@ -3,6 +3,7 @@ import path from "node:path";
 import url from "node:url";
 import pg from "pg";
 import { CompileQueryArgs, compileQuery } from "../src/api.js";
+import { SQLEntities } from "../src/backend.js";
 import { CreateOsoArgs } from "../src/oso.js";
 import { PostgresBackend } from "../src/pg-backend.js";
 
@@ -110,6 +111,7 @@ export async function setupEnv(
     }
   };
 
+  let entities: SQLEntities;
   try {
     await client.connect();
     teardowns.push(["Close root client", () => client.end()]);

@@ -20,18 +20,6 @@ export interface SQLTableMetadata {
   columns: string[];
 }
 
-export interface SQLUser {
-  type: "user";
-  name: string;
-}
-
-export interface SQLGroup {
-  type: "group";
-  name: string;
-}
-
-export type SQLActor = SQLUser | SQLGroup;
-
 export interface SQLSchema {
   type: "schema";
   name: string;
@@ -50,6 +38,25 @@ export interface SQLFunction {
   name: string;
   builtin: boolean;
 }
+
+export interface SQLProcedure {
+  type: "procedure";
+  schema: string;
+  name: string;
+  builtin: boolean;
+}
+
+export interface SQLUser {
+  type: "user";
+  name: string;
+}
+
+export interface SQLGroup {
+  type: "group";
+  name: string;
+}
+
+export type SQLActor = SQLUser | SQLGroup;
 
 export const TablePrivileges = [
   "SELECT",
@@ -77,6 +84,14 @@ export const SchemaPrivileges = ["USAGE", "CREATE"] as const;
 
 export type SchemaPrivilege = (typeof SchemaPrivileges)[number];
 
+export const FunctionPrivileges = ["EXECUTE"] as const;
+
+export type FunctionPrivilege = (typeof FunctionPrivileges)[number];
+
+export const ProcedurePrivileges = ["EXECUTE"] as const;
+
+export type ProcedurePrivilege = (typeof FunctionPrivileges)[number];
+
 export interface BasePermission {
   user: SQLActor;
 }
@@ -101,7 +116,24 @@ export interface ViewPermission extends BasePermission {
   privilege: ViewPrivilege;
 }
 
-export type Permission = TablePermission | SchemaPermission | ViewPermission;
+export interface FunctionPermission extends BasePermission {
+  type: "function";
+  function: SQLFunction;
+  privilege: FunctionPrivilege;
+}
+
+export interface ProcedurePermission extends BasePermission {
+  type: "procedure";
+  procedure: SQLProcedure;
+  privilege: ProcedurePrivilege;
+}
+
+export type Permission =
+  | TablePermission
+  | SchemaPermission
+  | ViewPermission
+  | FunctionPermission
+  | ProcedurePermission;
 
 export type Privilege = {
   [P in Permission as P["type"]]: P["privilege"];

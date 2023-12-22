@@ -12,8 +12,11 @@ import {
   simpleEvaluator,
 } from "./clause.js";
 import {
+  FunctionPermission,
   Permission,
   SQLActor,
+  SQLFunction,
+  SQLProcedure,
   SQLSchema,
   SQLTable,
   SQLTableMetadata,
@@ -136,22 +139,25 @@ export class PostgresBackend implements SQLBackend {
           AND schemaname != 'pg_toast'
       `,
       );
-    const getFunctions = () =>
+    const getFunctionsAndProcedures = () =>
       this.client.query<{
         schema: string;
         name: string;
+        isProcedure: boolean;
         builtin: boolean;
       }>(
         `
         SELECT
           n.nspname as "schema",
           p.proname as "name",
+          p.prokind = 'p' as "isProcedure",
           n.nspname = 'pg_catalog' as "builtin"
         FROM
           pg_catalog.pg_proc p
           LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
         WHERE
-          pg_catalog.pg_function_is_visible(p.oid);
+          n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+          OR pg_catalog.pg_function_is_visible(p.oid);
       `,
       );
 
@@ -163,7 +169,7 @@ export class PostgresBackend implements SQLBackend {
       schemas,
       views,
       policies,
-      functions,
+      functionsAndProcedures,
     ] = await Promise.all([
       getUsers(),
       getGroups(),
@@ -172,7 +178,7 @@ export class PostgresBackend implements SQLBackend {
       getSchemas(),
       getViews(),
       getPolicies(),
-      getFunctions(),
+      getFunctionsAndProcedures(),
     ]);
 
     const tableItems: Record<string, SQLTableMetadata> = {};
@@ -197,6 +203,31 @@ export class PostgresBackend implements SQLBackend {
       return value.slice(1, -1).split(",");
     };
 
+    const functions: SQLFunction[] = [];
+    const procedures: SQLProcedure[] = [];
+    for (const {
+      schema,
+      name,
+      builtin,
+      isProcedure,
+    } of functionsAndProcedures.rows) {
+      if (isProcedure) {
+        procedures.push({
+          type: "procedure",
+          name,
+          schema,
+          builtin,
+        });
+      } else {
+        functions.push({
+          type: "function",
+          name,
+          schema,
+          builtin,
+        });
+      }
+    }
+
     return {
       users: users.rows.map((row) => ({ type: "user", name: row.name })),
       groups: groups.rows.map((row) => ({ type: "group", name: row.name })),
@@ -216,7 +247,8 @@ export class PostgresBackend implements SQLBackend {
           name: user,
         })),
       })),
-      functions: functions.rows.map((row) => ({ type: "function", ...row })),
+      functions,
+      procedures,
     };
   }
 
@@ -228,7 +260,9 @@ export class PostgresBackend implements SQLBackend {
     return this.quoteIdentifier(schema.name);
   }
 
-  private quoteQualifiedName(table: SQLTable | SQLView): string {
+  private quoteQualifiedName(
+    table: SQLTable | SQLView | SQLFunction | SQLProcedure,
+  ): string {
     return [
       this.quoteIdentifier(table.schema),
       this.quoteIdentifier(table.name),
@@ -579,7 +613,7 @@ export class PostgresBackend implements SQLBackend {
             return [
               `GRANT TRUNCATE ON ${this.quoteQualifiedName(
                 permission.table,
-              )} ` + `TO ${this.quoteTopLevelName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
           case "TRIGGER":
             return [
@@ -590,7 +624,7 @@ export class PostgresBackend implements SQLBackend {
             return [
               `GRANT REFERENCES ON ${this.quoteQualifiedName(
                 permission.table,
-              )} ` + `TO ${this.quoteTopLevelName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
           default: {
             const _: never = permission;
@@ -612,14 +646,52 @@ export class PostgresBackend implements SQLBackend {
             return [
               `GRANT ${permission.privilege} ON ${this.quoteQualifiedName(
                 permission.view,
-              )} ` + `TO ${this.quoteTopLevelName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
-          default:
+          default: {
+            const _: never = permission;
             throw new Error(
               `Invalid view privilege: ${
                 (permission as ViewPermission).privilege
               }`,
             );
+          }
+        }
+      }
+      case "function": {
+        switch (permission.privilege) {
+          case "EXECUTE":
+            return [
+              `GRANT ${permission.privilege} ON FUNCTION ` +
+                `${this.quoteQualifiedName(permission.function)} ` +
+                `TO ${this.quoteTopLevelName(permission.user)};`,
+            ];
+          default: {
+            const _: never = permission;
+            throw new Error(
+              `Invalid function privilege: ${
+                (permission as FunctionPermission).privilege
+              }`,
+            );
+          }
+        }
+      }
+      case "procedure": {
+        switch (permission.privilege) {
+          case "EXECUTE":
+            return [
+              `GRANT ${permission.privilege} ON PROCEDURE ` +
+                `${this.quoteQualifiedName(permission.procedure)} ` +
+                `TO ${this.quoteTopLevelName(permission.user)};`,
+            ];
+          default: {
+            const _: never = permission;
+            throw new Error(
+              `Invalid procedure privilege: ${
+                (permission as FunctionPermission).privilege
+              }`,
+            );
+          }
         }
       }
       default: {

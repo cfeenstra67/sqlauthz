@@ -166,6 +166,7 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
         - Column-level security supported for `select`, `insert`, `update`
     - Schema permissions - `"usage"`, `"create"`
     - View permissions - `"select"`, `"insert"`, `"update"`, `"delete"`, `"trigger"`. Note that only "simple views" are updatable, see the [postgres documentation](https://www.postgresql.org/docs/current/sql-createview.html) for more details.
+    - Function and procedure permissions - `"execute"`
 
 - `resource` - This can represent either a **table** or a **schema**. The semantics are different for different types of database objects, described below:
     - **tables** - Can be compared directly with strings. When comparing directly table names must be schema-qualified. e.g. `resource == "someschema.sometable"`
@@ -182,6 +183,14 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
         - `resource.type` - Equal to `"view"` e.g. `resource.type == "view"`
         - `resource.name` - The view name, without schema e.g. `resource.name == "someview"`
         - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
+    - **functions** - Can be compared directly with strings, e.g. `resource == "myschema.myfunction"`
+        - `resource.type` - Equal to `"function"` e.g. `resource.type == "function"`
+        - `resource.name` - The function name, without schema e.g. `resource.name == "somefunction"`
+        - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
+    - **procedures** - Can be compared directly with strings, e.g. `resource == "myschema.myprocedure"`
+         - `resource.type` - Equal to `"procedure"` e.g. `resource.type == "procedure"`
+         - `resource.name` - The procedure name, without schema e.g. `resource.name == "someprocedure"`
+         - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
 
 For a full explanation of polar semantics, you can read the [Polar Documentation](https://www.osohq.com/docs/reference/polar/foundations).
 
@@ -289,11 +298,21 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 
 `sqlauthz` is still very early in its development and while it should have enough functionality to be usable for a lot of use-cases, there's a lot of functionality missing as well. More or less all of these are on my radar as improvement to make eventually, however if any of these are particularly important to you feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and let me know. That will help me prioritize what to work on first.
 
-- Currently only supports permissions on tables, views, and schemas (not functions, databases, sequences, etc.).
+- Currently only supports permissions on tables, views, schemas, functions, and procedures (not sequences, types, languages, etc.).
+
+- **`sqlauthz` never alters default privileges.** Let me know via opening an issue if this is something you're interested in. In particular, by default all users have EXECUTE privleges on functions and procedures. To change this, you can use the following one-time query:
+```sql
+ALTER DEFAULT PRIVILEGES
+REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
+```
+
+- Does not support setting permissions on built-in functions or procedures (defined as functions in the `pg_catalog` schema)
 
 - Support for using SQL functions in row-level security clauses is imperfect. It works for most cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
     - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
     - When writing a clause that operates on the result of a function call and a literal, you will have to use the `sql.lit` helper to declare the literal. E.g. rather than `sql.date_trunc("hour", table.row.created_at) == "2023-01-01T00:00:00"` you would have to write `sql.date_trunc("hour", table.row.created_at) == sql.lit("2023-01-01T00:00:00")`.
+
+- When using SQL functions in row-level security clauses, number and type of arguments are unchecked.
 
 - Currently there is no way to use joins or select from other tables in row-level security queries.
 

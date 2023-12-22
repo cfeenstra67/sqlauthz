@@ -1,0 +1,26 @@
+BEGIN;
+
+CREATE SCHEMA test;
+
+ALTER DEFAULT PRIVILEGES
+REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
+
+CREATE FUNCTION test.test_func() RETURNS integer
+    AS $$ SELECT 1 $$
+    LANGUAGE SQL;
+
+CREATE TABLE test.articles (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL
+);
+
+CREATE PROCEDURE test.insert_article(newtitle VARCHAR(255))
+LANGUAGE SQL
+SECURITY DEFINER
+AS $$
+INSERT INTO test.articles (title) VALUES (newtitle)
+$$;
+
+CREATE USER {{user1}} WITH PASSWORD 'blah';
+
+COMMIT;

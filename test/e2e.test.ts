@@ -572,3 +572,85 @@ for (const rules of ["view-3", "view-4"]) {
     });
   });
 }
+
+for (const rules of [
+  "functions-and-procedures-1",
+  "functions-and-procedures-2",
+]) {
+  describe(`test-${rules}`, async () => {
+    const user1 = userNameGenerator();
+    const db = dbNameGenerator();
+    const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+    let teardown: () => Promise<void> = async () => {};
+
+    before(async () => {
+      teardown = await setupEnv("functions-and-procedures", rules, db, {
+        user1,
+      });
+    });
+
+    after(async () => {
+      await teardown();
+    });
+
+    await it("user1: can access test.test_func", async () => {
+      await useClient(async (client) => {
+        const result = await client.query<{ r: number }>(
+          "SELECT test.test_func() as r",
+        );
+        assert.equal(result.rowCount, 1);
+        assert.equal(result.rows[0]?.r, 1);
+      });
+    });
+
+    await it("user1: cannot access test.insert_articles", async () => {
+      await useClient(async (client) => {
+        await assert.rejects(
+          client.query("CALL test.insert_article('Test');"),
+          {
+            message: "permission denied for procedure insert_article",
+          },
+        );
+      });
+    });
+  });
+}
+
+for (const rules of [
+  "functions-and-procedures-3",
+  "functions-and-procedures-4",
+]) {
+  describe(`test-${rules}`, async () => {
+    const user1 = userNameGenerator();
+    const db = dbNameGenerator();
+    const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+    let teardown: () => Promise<void> = async () => {};
+
+    before(async () => {
+      teardown = await setupEnv("functions-and-procedures", rules, db, {
+        user1,
+      });
+    });
+
+    after(async () => {
+      await teardown();
+    });
+
+    await it("user1: cannot access test.test_func", async () => {
+      await useClient(async (client) => {
+        await assert.rejects(client.query("SELECT test.test_func()"), {
+          message: "permission denied for function test_func",
+        });
+      });
+    });
+
+    await it("user1: can access test.insert_articles", async () => {
+      await useClient(async (client) => {
+        const result = await client.query("CALL test.insert_article('Test')");
+        assert.equal(result.rowCount, null);
+      });
+    });
+  });
+}
