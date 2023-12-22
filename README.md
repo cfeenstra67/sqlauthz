@@ -31,6 +31,7 @@ Currently `sqlauthz` support PostgreSQL as a backend, and it allows you to defin
 
 - Schema permissions
 - Table permissions **including column and row-level security**
+- View permissions
 
 To get started, check out the [Table of Contents](#table-of-contents) below.
 
@@ -164,18 +165,23 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
         - Row-level security supported for `select`, `insert`, `update`, `delete`
         - Column-level security supported for `select`, `insert`, `update`
     - Schema permissions - `"usage"`, `"create"`
+    - View permissions - `"select"`, `"insert"`, `"update"`, `"delete"`, `"trigger"`. Note that only "simple views" are updatable, see the [postgres documentation](https://www.postgresql.org/docs/current/sql-createview.html) for more details.
 
-- `resource` - This can represent either a **table** or a **schema**. The semantics are different for tables and schema, described below:
-    - **table** - Can be compared directly with strings. When comparing directly table names must be schema-qualified. e.g. `resource == "someschema.sometable"`
+- `resource` - This can represent either a **table** or a **schema**. The semantics are different for different types of database objects, described below:
+    - **tables** - Can be compared directly with strings. When comparing directly table names must be schema-qualified. e.g. `resource == "someschema.sometable"`
         - `resource.type` - Equal to `"table"`, e.g. `resource.type == "table"`
         - `resource.name` - The table name, without schema, e.g. `resource.name == "sometable"`
         - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
         - `resource.col` - Filter which columns the permission applies to, e.g. `resource.col in ["col1", "col2"]`
         - `resource.row.<col>` - Filter which rows the permission applies to via row-level security policies, e.g. `resource.row.id == 12`.
-    - **schema** - Cab be compared directly with strings, e.g. `resource == "someschema"`
+    - **schemas** - Can be compared directly with strings, e.g. `resource == "someschema"`
         - `resource.type` - Equal to `"schema"`, e.g. `resource.type == "schema"`
         - `resource.name` - Equal to the schema name, e.g. `resource.name == "someschema"`
         - `resource.schema` - Equal to the schema name, equivalent to `resource.name`. This only exists so that one can simply give permissions across an entire schema including both tables and the schema itself by writing `resource.schema == "someschema"`.
+    - **views** - Can be compared directly with strings, e.g. `resource == "myschema.myview"`
+        - `resource.type` - Equal to `"view"` e.g. `resource.type == "view"`
+        - `resource.name` - The view name, without schema e.g. `resource.name == "someview"`
+        - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
 
 For a full explanation of polar semantics, you can read the [Polar Documentation](https://www.osohq.com/docs/reference/polar/foundations).
 
@@ -283,9 +289,7 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 
 `sqlauthz` is still very early in its development and while it should have enough functionality to be usable for a lot of use-cases, there's a lot of functionality missing as well. More or less all of these are on my radar as improvement to make eventually, however if any of these are particularly important to you feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and let me know. That will help me prioritize what to work on first.
 
-- Currently only supports a limited set of permissions - `USAGE` on schemas as `SELECT`, `UPDATE`, `INSERT`, `DELETE` on tables.
-
-- Currently only supports permissions on tables and schemas (not views, functions, databases).
+- Currently only supports permissions on tables, views, and schemas (not functions, databases, sequences, etc.).
 
 - Support for using SQL functions in row-level security clauses is imperfect. It works for most cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
     - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
@@ -294,8 +298,6 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 - Currently there is no way to use joins or select from other tables in row-level security queries.
 
 - At the moment will only grant permissions on objects that exist in the database at the time of applying permissions. For example, if you write a rule that allows access to all objects within a schema, `sqlauthz` will generate a `GRANT` query for each one of those objects individual rather than one with `FOR ALL TABLES IN SCHEMA <schema>`.
-
-- Only supports assigning permissions to users, not groups.
 
 ## Support and Feature Requests
 
