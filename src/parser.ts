@@ -17,24 +17,24 @@ import {
 import { LiteralsContext } from "./oso.js";
 import {
   Permission,
+  Privilege,
   SQLActor,
   SQLSchema,
   SQLTableMetadata,
   SQLView,
-  SchemaPrivilege,
+  SchemaPermission,
   SchemaPrivileges,
   TablePermission,
-  TablePrivilege,
   TablePrivileges,
-  ViewPrivilege,
+  ViewPermission,
   ViewPrivileges,
   formatQualifiedName,
 } from "./sql.js";
 import { arrayProduct } from "./utils.js";
 
-export interface ConvertPermissionSuccess {
+export interface ConvertPermissionSuccess<P extends Permission = Permission> {
   type: "success";
-  permissions: Permission[];
+  permissions: P[];
 }
 
 export interface ConvertPermissionError {
@@ -42,8 +42,8 @@ export interface ConvertPermissionError {
   errors: string[];
 }
 
-export type ConvertPermissionResult =
-  | ConvertPermissionSuccess
+export type ConvertPermissionResult<P extends Permission = Permission> =
+  | ConvertPermissionSuccess<P>
   | ConvertPermissionError;
 
 interface ActorEvaluatorArgs {
@@ -475,6 +475,222 @@ function permissionEvaluator({
   });
 }
 
+function isIdentityClause(clause: Clause, variable: string): boolean {
+  return clause.type === "column" && clause.value === variable;
+}
+
+interface GetPermissionsArgs<P extends Permission> {
+  clause: Clause;
+  users: SQLActor[];
+  privileges: P["privilege"][];
+  entities: SQLEntities;
+  strictFields?: boolean;
+  debug?: boolean;
+}
+
+interface DatabaseObjectTypeHandler<P extends Permission> {
+  privileges: readonly P["privilege"][];
+  getPermissions: (args: GetPermissionsArgs<P>) => ConvertPermissionResult<P>;
+  getDeduplicationKey: (permission: P) => string;
+  deduplicate: (permissions: P[]) => P;
+}
+
+type Handlers = {
+  [P in Permission as P["type"]]: DatabaseObjectTypeHandler<P>;
+};
+
+const handlers: Handlers = {
+  table: {
+    privileges: TablePrivileges,
+    getPermissions: ({
+      clause,
+      users,
+      privileges,
+      entities,
+      strictFields,
+      debug,
+    }) => {
+      if (privileges.length === 0) {
+        return { type: "success", permissions: [] };
+      }
+      const errors: string[] = [];
+      const permissions: TablePermission[] = [];
+      for (const table of entities.tables) {
+        const result = tableEvaluator({
+          table,
+          clause,
+          strictFields,
+          debug,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.type === "match") {
+          for (const [user, privilege] of arrayProduct([users, privileges])) {
+            permissions.push({
+              type: "table",
+              table: table.table,
+              user,
+              privilege,
+              columnClause: result.columnClause,
+              rowClause: result.rowClause,
+            });
+          }
+        }
+      }
+      if (errors.length > 0) {
+        return { type: "error", errors };
+      }
+      return { type: "success", permissions };
+    },
+    getDeduplicationKey: (permission) => {
+      return [
+        permission.type,
+        permission.privilege,
+        permission.user.name,
+        formatQualifiedName(permission.table.schema, permission.table.name),
+      ].join(",");
+    },
+    deduplicate: (permissions) => {
+      const [first, ...rest] = permissions;
+      const rowClause = optimizeClause({
+        type: "or",
+        clauses: [first!.rowClause, ...rest.map((perm) => perm.rowClause)],
+      });
+      const columnClause = optimizeClause({
+        type: "or",
+        clauses: [
+          first!.columnClause,
+          ...rest.map((perm) => perm.columnClause),
+        ],
+      });
+      return {
+        type: "table",
+        user: first!.user,
+        table: first!.table,
+        privilege: first!.privilege,
+        rowClause,
+        columnClause,
+      };
+    },
+  },
+  schema: {
+    privileges: SchemaPrivileges,
+    getPermissions: ({
+      clause,
+      users,
+      privileges,
+      entities,
+      strictFields,
+      debug,
+    }) => {
+      if (privileges.length === 0) {
+        return { type: "success", permissions: [] };
+      }
+
+      const errors: string[] = [];
+      const schemas: SQLSchema[] = [];
+      const permissions: SchemaPermission[] = [];
+      for (const schema of entities.schemas) {
+        const result = evaluateClause({
+          clause,
+          evaluate: schemaEvaluator({ schema, debug }),
+          strictFields,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.result) {
+          schemas.push(schema);
+        }
+      }
+
+      for (const [user, privilege, schema] of arrayProduct([
+        users,
+        privileges,
+        schemas,
+      ])) {
+        permissions.push({
+          type: "schema",
+          schema,
+          privilege,
+          user,
+        });
+      }
+
+      if (errors.length > 0) {
+        return { type: "error", errors };
+      }
+      return { type: "success", permissions };
+    },
+    getDeduplicationKey: (permission) => {
+      return [
+        permission.type,
+        permission.privilege,
+        permission.user.name,
+        permission.schema.name,
+      ].join(",");
+    },
+    deduplicate: (permissions) => {
+      return permissions[0]!;
+    },
+  },
+  view: {
+    privileges: ViewPrivileges,
+    getPermissions: ({
+      clause,
+      users,
+      privileges,
+      entities,
+      strictFields,
+      debug,
+    }) => {
+      const views: SQLView[] = [];
+      const errors: string[] = [];
+      const permissions: ViewPermission[] = [];
+      for (const view of entities.views) {
+        const result = evaluateClause({
+          clause,
+          evaluate: viewEvaluator({ view, debug }),
+          strictFields,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.result) {
+          views.push(view);
+        }
+      }
+
+      for (const [user, privilege, view] of arrayProduct([
+        users,
+        privileges,
+        views,
+      ])) {
+        permissions.push({
+          type: "view",
+          view,
+          privilege,
+          user,
+        });
+      }
+
+      if (errors.length > 0) {
+        return { type: "error", errors };
+      }
+      return { type: "success", permissions };
+    },
+    getDeduplicationKey: (permission) => {
+      return [
+        permission.type,
+        permission.privilege,
+        permission.user.name,
+        formatQualifiedName(permission.view.schema, permission.view.name),
+      ].join(",");
+    },
+    deduplicate: (permissions) => {
+      return permissions[0]!;
+    },
+  },
+};
+
 export interface ConvertPermissionArgs {
   result: Map<string, unknown>;
   entities: SQLEntities;
@@ -482,10 +698,6 @@ export interface ConvertPermissionArgs {
   strictFields?: boolean;
   debug?: boolean;
   literals: Map<string, Value>;
-}
-
-function isIdentityClause(clause: Clause, variable: string): boolean {
-  return clause.type === "column" && clause.value === variable;
 }
 
 export function convertPermission({
@@ -556,131 +768,35 @@ export function convertPermission({
       continue;
     }
 
-    const schemaPrivileges: SchemaPrivilege[] = [];
-    for (const privilege of SchemaPrivileges) {
-      const result = evaluateClause({
-        clause: actionOr,
-        evaluate: permissionEvaluator({ permission: privilege, debug }),
-        strictFields,
-      });
-      if (result.type === "error") {
-        errors.push(...result.errors);
-      } else if (result.result) {
-        schemaPrivileges.push(privilege);
-      }
-    }
-
-    if (schemaPrivileges.length > 0) {
-      const schemas: SQLSchema[] = [];
-      for (const schema of entities.schemas) {
+    for (const handler of Object.values(handlers)) {
+      const privileges: Privilege[] = [];
+      for (const privilege of handler.privileges) {
         const result = evaluateClause({
-          clause: resourceOr,
-          evaluate: schemaEvaluator({ schema, debug }),
+          clause: actionOr,
+          evaluate: permissionEvaluator({ permission: privilege, debug }),
           strictFields,
         });
         if (result.type === "error") {
           errors.push(...result.errors);
         } else if (result.result) {
-          schemas.push(schema);
+          privileges.push(privilege);
         }
       }
 
-      for (const [user, privilege, schema] of arrayProduct([
+      const result = handler.getPermissions({
+        clause: resourceOr,
+        // biome-ignore lint/suspicious/noExplicitAny: tricky type situation
+        privileges: privileges as any,
         users,
-        schemaPrivileges,
-        schemas,
-      ])) {
-        permissions.push({
-          type: "schema",
-          schema,
-          privilege,
-          user,
-        });
-      }
-    }
-
-    const tablePrivileges: TablePrivilege[] = [];
-    for (const privilege of TablePrivileges) {
-      const result = evaluateClause({
-        clause: actionOr,
-        evaluate: permissionEvaluator({ permission: privilege, debug }),
+        entities,
         strictFields,
+        debug,
       });
-      if (result.type === "error") {
+
+      if (result.type === "success") {
+        permissions.push(...result.permissions);
+      } else {
         errors.push(...result.errors);
-      } else if (result.result) {
-        tablePrivileges.push(privilege);
-      }
-    }
-
-    if (tablePrivileges.length > 0) {
-      for (const table of entities.tables) {
-        const result = tableEvaluator({
-          table,
-          clause: resourceOr,
-          strictFields,
-          debug,
-        });
-        if (result.type === "error") {
-          errors.push(...result.errors);
-        } else if (result.type === "match") {
-          for (const [user, privilege] of arrayProduct([
-            users,
-            tablePrivileges,
-          ])) {
-            permissions.push({
-              type: "table",
-              table: table.table,
-              user,
-              privilege,
-              columnClause: result.columnClause,
-              rowClause: result.rowClause,
-            });
-          }
-        }
-      }
-    }
-
-    const viewPrivileges: ViewPrivilege[] = [];
-    for (const privilege of ViewPrivileges) {
-      const result = evaluateClause({
-        clause: actionOr,
-        evaluate: permissionEvaluator({ permission: privilege, debug }),
-        strictFields,
-      });
-      if (result.type === "error") {
-        errors.push(...result.errors);
-      } else if (result.result) {
-        viewPrivileges.push(privilege);
-      }
-    }
-
-    if (viewPrivileges.length > 0) {
-      const views: SQLView[] = [];
-      for (const view of entities.views) {
-        const result = evaluateClause({
-          clause: resourceOr,
-          evaluate: viewEvaluator({ view, debug }),
-          strictFields,
-        });
-        if (result.type === "error") {
-          errors.push(...result.errors);
-        } else if (result.result) {
-          views.push(view);
-        }
-      }
-
-      for (const [user, privilege, view] of arrayProduct([
-        users,
-        viewPrivileges,
-        views,
-      ])) {
-        permissions.push({
-          type: "view",
-          view,
-          privilege,
-          user,
-        });
       }
     }
   }
@@ -764,39 +880,9 @@ export function deduplicatePermissions(
 ): Permission[] {
   const permissionsByKey: Record<string, Permission[]> = {};
   for (const permission of permissions) {
-    let key: string;
-    switch (permission.type) {
-      case "schema":
-        key = [
-          permission.type,
-          permission.privilege,
-          permission.user.name,
-          permission.schema.name,
-        ].join(",");
-        break;
-      case "table":
-        key = [
-          permission.type,
-          permission.privilege,
-          permission.user.name,
-          formatQualifiedName(permission.table.schema, permission.table.name),
-        ].join(",");
-        break;
-      case "view":
-        key = [
-          permission.type,
-          permission.privilege,
-          permission.user.name,
-          formatQualifiedName(permission.view.schema, permission.view.name),
-        ].join(",");
-        break;
-      default: {
-        const _: never = permission;
-        throw new Error(
-          `Invalid permission type: ${(permission as Permission).type}`,
-        );
-      }
-    }
+    const handler = handlers[permission.type];
+    // biome-ignore lint/suspicious/noExplicitAny: deep type intersection
+    const key = handler.getDeduplicationKey(permission as any);
 
     permissionsByKey[key] ??= [];
     permissionsByKey[key]!.push(permission);
@@ -805,45 +891,10 @@ export function deduplicatePermissions(
   const outPermissions: Permission[] = [];
   for (const groupedPermissions of Object.values(permissionsByKey)) {
     const first = groupedPermissions[0]!;
-    const rest = groupedPermissions.slice(1);
-    switch (first.type) {
-      case "schema":
-      case "view":
-        outPermissions.push(first);
-        break;
-      case "table": {
-        const typedRest = rest as TablePermission[];
-        const rowClause = optimizeClause({
-          type: "or",
-          clauses: [
-            first.rowClause,
-            ...typedRest.map((perm) => perm.rowClause),
-          ],
-        });
-        const columnClause = optimizeClause({
-          type: "or",
-          clauses: [
-            first.columnClause,
-            ...typedRest.map((perm) => perm.columnClause),
-          ],
-        });
-        outPermissions.push({
-          type: "table",
-          user: first.user,
-          table: first.table,
-          privilege: first.privilege,
-          rowClause,
-          columnClause,
-        });
-        break;
-      }
-      default: {
-        const _: never = first;
-        throw new Error(
-          `Invalid permission type: ${(first as Permission).type}`,
-        );
-      }
-    }
+    const handler = handlers[first.type];
+    // biome-ignore lint/suspicious/noExplicitAny: deep type intersection
+    const newPermission = handler.deduplicate(groupedPermissions as any);
+    outPermissions.push(newPermission);
   }
 
   return outPermissions;

@@ -103,6 +103,10 @@ export interface ViewPermission extends BasePermission {
 
 export type Permission = TablePermission | SchemaPermission | ViewPermission;
 
+export type Privilege = {
+  [P in Permission as P["type"]]: P["privilege"];
+}[Permission["type"]];
+
 export function parseQualifiedName(tableName: string): [string, string] | null {
   const parts = tableName.split(".");
   if (parts.length !== 2) {
