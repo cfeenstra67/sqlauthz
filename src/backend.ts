@@ -6,6 +6,7 @@ import {
   SQLSchema,
   SQLTableMetadata,
   SQLUser,
+  SQLView,
 } from "./sql.js";
 
 export interface SQLEntities {
@@ -13,6 +14,7 @@ export interface SQLEntities {
   groups: SQLGroup[];
   schemas: SQLSchema[];
   tables: SQLTableMetadata[];
+  views: SQLView[];
   rlsPolicies: SQLRowLevelSecurityPolicy[];
   functions: SQLFunction[];
 }

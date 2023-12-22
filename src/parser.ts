@@ -20,12 +20,15 @@ import {
   SQLActor,
   SQLSchema,
   SQLTableMetadata,
+  SQLView,
   SchemaPrivilege,
   SchemaPrivileges,
   TablePermission,
   TablePrivilege,
   TablePrivileges,
-  formatTableName,
+  ViewPrivilege,
+  ViewPrivileges,
+  formatQualifiedName,
 } from "./sql.js";
 import { arrayProduct } from "./utils.js";
 
@@ -116,7 +119,7 @@ function tableEvaluator({
   debug,
   strictFields,
 }: TableEvaluatorArgs): TableEvaluatorResult {
-  const tableName = formatTableName(table.table);
+  const tableName = formatQualifiedName(table.table.schema, table.table.name);
   const variableName = "resource";
   const errorVariableName = debug ? `table(${tableName})` : variableName;
 
@@ -142,7 +145,7 @@ function tableEvaluator({
         return table.table.schema;
       }
       if (value.value === "_this.type") {
-        return table.type;
+        return table.table.type;
       }
       throw new ValidationError(
         `${errorVariableName}: invalid table field: ${value.value}`,
@@ -399,6 +402,42 @@ function schemaEvaluator({
   });
 }
 
+interface ViewEvaluatorArgs {
+  view: SQLView;
+  debug?: boolean;
+}
+
+function viewEvaluator({
+  view,
+  debug,
+}: ViewEvaluatorArgs): EvaluateClauseArgs["evaluate"] {
+  const variableName = "resource";
+  const errorVariableName = debug ? `view(${view.name})` : variableName;
+  return simpleEvaluator({
+    variableName,
+    errorVariableName,
+    getValue: (value) => {
+      if (value.type === "value") {
+        return value.value;
+      }
+      if (value.type === "function-call") {
+        throw new ValidationError(
+          `${errorVariableName}: invalid function call`,
+        );
+      }
+      if (value.value === "_this" || value.value === "_this.name") {
+        return formatQualifiedName(view.schema, view.name);
+      }
+      if (value.value === "_this.type") {
+        return view.type;
+      }
+      throw new ValidationError(
+        `${errorVariableName}: invalid view field: ${value.value}`,
+      );
+    },
+  });
+}
+
 interface PermissionEvaluatorArgs {
   permission: string;
   debug?: boolean;
@@ -601,6 +640,49 @@ export function convertPermission({
         }
       }
     }
+
+    const viewPrivileges: ViewPrivilege[] = [];
+    for (const privilege of ViewPrivileges) {
+      const result = evaluateClause({
+        clause: actionOr,
+        evaluate: permissionEvaluator({ permission: privilege, debug }),
+        strictFields,
+      });
+      if (result.type === "error") {
+        errors.push(...result.errors);
+      } else if (result.result) {
+        viewPrivileges.push(privilege);
+      }
+    }
+
+    if (viewPrivileges.length > 0) {
+      const views: SQLView[] = [];
+      for (const view of entities.views) {
+        const result = evaluateClause({
+          clause: resourceOr,
+          evaluate: viewEvaluator({ view, debug }),
+          strictFields,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.result) {
+          views.push(view);
+        }
+      }
+
+      for (const [user, privilege, view] of arrayProduct([
+        users,
+        viewPrivileges,
+        views,
+      ])) {
+        permissions.push({
+          type: "view",
+          view,
+          privilege,
+          user,
+        });
+      }
+    }
   }
 
   if (errors.length > 0) {
@@ -683,21 +765,39 @@ export function deduplicatePermissions(
   const permissionsByKey: Record<string, Permission[]> = {};
   for (const permission of permissions) {
     let key: string;
-    if (permission.type === "schema") {
-      key = [
-        permission.type,
-        permission.privilege,
-        permission.user.name,
-        permission.schema.name,
-      ].join(",");
-    } else {
-      key = [
-        permission.type,
-        permission.privilege,
-        permission.user.name,
-        formatTableName(permission.table),
-      ].join(",");
+    switch (permission.type) {
+      case "schema":
+        key = [
+          permission.type,
+          permission.privilege,
+          permission.user.name,
+          permission.schema.name,
+        ].join(",");
+        break;
+      case "table":
+        key = [
+          permission.type,
+          permission.privilege,
+          permission.user.name,
+          formatQualifiedName(permission.table.schema, permission.table.name),
+        ].join(",");
+        break;
+      case "view":
+        key = [
+          permission.type,
+          permission.privilege,
+          permission.user.name,
+          formatQualifiedName(permission.view.schema, permission.view.name),
+        ].join(",");
+        break;
+      default: {
+        const _: never = permission;
+        throw new Error(
+          `Invalid permission type: ${(permission as Permission).type}`,
+        );
+      }
     }
+
     permissionsByKey[key] ??= [];
     permissionsByKey[key]!.push(permission);
   }
@@ -706,29 +806,43 @@ export function deduplicatePermissions(
   for (const groupedPermissions of Object.values(permissionsByKey)) {
     const first = groupedPermissions[0]!;
     const rest = groupedPermissions.slice(1);
-    if (first.type === "schema") {
-      outPermissions.push(first);
-    } else {
-      const typedRest = rest as TablePermission[];
-      const rowClause = optimizeClause({
-        type: "or",
-        clauses: [first.rowClause, ...typedRest.map((perm) => perm.rowClause)],
-      });
-      const columnClause = optimizeClause({
-        type: "or",
-        clauses: [
-          first.columnClause,
-          ...typedRest.map((perm) => perm.columnClause),
-        ],
-      });
-      outPermissions.push({
-        type: "table",
-        user: first.user,
-        table: first.table,
-        privilege: first.privilege,
-        rowClause,
-        columnClause,
-      });
+    switch (first.type) {
+      case "schema":
+      case "view":
+        outPermissions.push(first);
+        break;
+      case "table": {
+        const typedRest = rest as TablePermission[];
+        const rowClause = optimizeClause({
+          type: "or",
+          clauses: [
+            first.rowClause,
+            ...typedRest.map((perm) => perm.rowClause),
+          ],
+        });
+        const columnClause = optimizeClause({
+          type: "or",
+          clauses: [
+            first.columnClause,
+            ...typedRest.map((perm) => perm.columnClause),
+          ],
+        });
+        outPermissions.push({
+          type: "table",
+          user: first.user,
+          table: first.table,
+          privilege: first.privilege,
+          rowClause,
+          columnClause,
+        });
+        break;
+      }
+      default: {
+        const _: never = first;
+        throw new Error(
+          `Invalid permission type: ${(first as Permission).type}`,
+        );
+      }
     }
   }
 

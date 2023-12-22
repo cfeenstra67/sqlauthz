@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.3.0] - 2023-12-22
+
+### Added
+
+- Add support for assigning permissions to groups
+
+- Add support for managing view permissions
+
+### Fixed
+
+- Fixed error constructing table columns when views exist
+
+- Fixed issue with using `resource.type` for tables
+
 ## [0.2.1] - 2023-12-18
 
 ### Fixed

@@ -177,6 +177,32 @@ describe("test-basic-6-function-call", async () => {
   });
 });
 
+describe("test-basic-7-type-field", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("basic", "basic-7", db, { user1, user2 });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: can access test.articles", async () => {
+    await useClient(async (client) => {
+      const result = await client.query<{ author: string }>(
+        "SELECT * FROM test.articles",
+      );
+      assert.equal(result.rowCount, 12);
+    });
+  });
+});
+
 describe("test-multi-table-1-full-access", async () => {
   const user1 = userNameGenerator();
   const user2 = userNameGenerator();
@@ -470,3 +496,78 @@ describe("test-group-1", async () => {
     });
   }
 });
+
+for (const rules of ["view-1", "view-2"]) {
+  describe(`test-${rules}`, async () => {
+    const user1 = userNameGenerator();
+    const db = dbNameGenerator();
+    const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+    let teardown: () => Promise<void> = async () => {};
+
+    before(async () => {
+      teardown = await setupEnv("view", rules, db, {
+        user1,
+      });
+    });
+
+    after(async () => {
+      await teardown();
+    });
+
+    await it("user1: should be able to access test.author_a_articles", async () => {
+      await useClient(async (client) => {
+        const result = await client.query(
+          "SELECT * FROM test.author_a_articles",
+        );
+        assert.equal(result.rowCount, 4);
+      });
+    });
+
+    await it("user1: should not be able to access test.articles", async () => {
+      await useClient(async (client) => {
+        await assert.rejects(client.query("SELECT * FROM test.articles"), {
+          message: "permission denied for table articles",
+        });
+      });
+    });
+  });
+}
+
+for (const rules of ["view-3", "view-4"]) {
+  describe(`test-${rules}`, async () => {
+    const user1 = userNameGenerator();
+    const db = dbNameGenerator();
+    const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+    let teardown: () => Promise<void> = async () => {};
+
+    before(async () => {
+      teardown = await setupEnv("view", rules, db, {
+        user1,
+      });
+    });
+
+    after(async () => {
+      await teardown();
+    });
+
+    await it("user1: should be able to access test.articles", async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM test.articles");
+        assert.equal(result.rowCount, 12);
+      });
+    });
+
+    await it("user1: should not be able to access test.author_a_articles", async () => {
+      await useClient(async (client) => {
+        await assert.rejects(
+          client.query("SELECT * FROM test.author_a_articles"),
+          {
+            message: "permission denied for view author_a_articles",
+          },
+        );
+      });
+    });
+  });
+}

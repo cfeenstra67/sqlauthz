@@ -1,7 +1,7 @@
 # sqlauthz - Declarative permissions management for PostgreSQL
 
 > [!WARNING]
-> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's very important that you **inspect the SQL queries** that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
+> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's recommended that you **inspect the SQL queries** that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
 
 `sqlauthz` allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
 
@@ -233,13 +233,13 @@ This can also be specified on the command line. See the [CLI Configuration](#cli
 
 These are a limited set of examples on how you can express certain rule sets in `sqlauthz` using polar. Note that the possiblities are nearly endless, and you should learn about the [Polar language](https://www.osohq.com/docs/reference/polar/foundations) if you want to have a firm grasp on everything that's possible.
 
-### Grant a user all permissions on all schemas
+### Grant a user or group all permissions on all schemas
 
 ```polar
 allow("bob", _, _);
 ```
 
-### Grant a group of users all permissions on a schema
+### Grant multiple users or groups all permissions on a schema
 
 ```polar
 allow(actor, _, resource)
@@ -250,15 +250,17 @@ isInGroup("bob");
 isInGroup(actor) if actor in ["jenny", "james"];
 ```
 
-### Grant a user read-only access on a schema
+### Grant a group read-only access on a schema
 
 ```polar
-allow("bob", action, resource)
-    if action in ["select", "usage"]
+allow(actor, action, resource)
+    if actor == "bob"
+    and actor.type == "group"
+    and action in ["select", "usage"]
     and resource.schema == "schema1";
 ```
 
-### Grant a user read permissions on a limited set of rows and columns in a table
+### Grant a user or group read permissions on a limited set of rows and columns in a table
 
 ```polar
 allow("bob", "select", resource)

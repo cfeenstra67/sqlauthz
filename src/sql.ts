@@ -7,6 +7,12 @@ export interface SQLTable {
   name: string;
 }
 
+export interface SQLView {
+  type: "view";
+  schema: string;
+  name: string;
+}
+
 export interface SQLTableMetadata {
   type: "table-metadata";
   table: SQLTable;
@@ -57,6 +63,16 @@ export const TablePrivileges = [
 
 export type TablePrivilege = (typeof TablePrivileges)[number];
 
+export const ViewPrivileges = [
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "TRIGGER",
+] as const;
+
+export type ViewPrivilege = (typeof ViewPrivileges)[number];
+
 export const SchemaPrivileges = ["USAGE", "CREATE"] as const;
 
 export type SchemaPrivilege = (typeof SchemaPrivileges)[number];
@@ -79,22 +95,24 @@ export interface SchemaPermission extends BasePermission {
   privilege: SchemaPrivilege;
 }
 
-export type Permission = TablePermission | SchemaPermission;
+export interface ViewPermission extends BasePermission {
+  type: "view";
+  view: SQLView;
+  privilege: ViewPrivilege;
+}
 
-export function parseTableName(tableName: string): SQLTable | null {
+export type Permission = TablePermission | SchemaPermission | ViewPermission;
+
+export function parseQualifiedName(tableName: string): [string, string] | null {
   const parts = tableName.split(".");
   if (parts.length !== 2) {
     return null;
   }
-  return {
-    type: "table",
-    name: parts[1]!,
-    schema: parts[0]!,
-  };
+  return parts as [string, string];
 }
 
-export function formatTableName(table: SQLTable): string {
-  return `${table.schema}.${table.name}`;
+export function formatQualifiedName(schema: string, name: string): string {
+  return `${schema}.${name}`;
 }
 
 export interface UserRevokePolicyAll {

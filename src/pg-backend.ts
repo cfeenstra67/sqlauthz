@@ -17,8 +17,10 @@ import {
   SQLSchema,
   SQLTable,
   SQLTableMetadata,
+  SQLView,
   SchemaPermission,
   TablePermission,
+  ViewPermission,
 } from "./sql.js";
 
 const ProjectDir = url.fileURLToPath(new URL(".", import.meta.url));
@@ -29,29 +31,32 @@ export class PostgresBackend implements SQLBackend {
   constructor(private readonly client: pg.Client) {}
 
   async fetchEntities(): Promise<SQLEntities> {
-    const users = await this.client.query<{ name: string }>(
-      `
+    const getUsers = () =>
+      this.client.query<{ name: string }>(
+        `
         SELECT
           usename as "name"
         FROM
           pg_catalog.pg_user
         WHERE NOT usesuper
       `,
-    );
-    const groups = await this.client.query<{ name: string }>(
-      `
+      );
+    const getGroups = () =>
+      this.client.query<{ name: string }>(
+        `
         SELECT
           groname as "name"
         FROM
           pg_catalog.pg_group
       `,
-    );
-    const tables = await this.client.query<{
-      schema: string;
-      name: string;
-      rlsEnabled: boolean;
-    }>(
-      `
+      );
+    const getTables = () =>
+      this.client.query<{
+        schema: string;
+        name: string;
+        rlsEnabled: boolean;
+      }>(
+        `
         SELECT
           schemaname as "schema",
           tablename as "name",
@@ -63,13 +68,14 @@ export class PostgresBackend implements SQLBackend {
           AND schemaname != 'pg_catalog'
           AND schemaname != 'pg_toast'
       `,
-    );
-    const tableColumns = await this.client.query<{
-      schema: string;
-      table: string;
-      name: string;
-    }>(
-      `
+      );
+    const getTableColumns = () =>
+      this.client.query<{
+        schema: string;
+        table: string;
+        name: string;
+      }>(
+        `
         SELECT
           table_schema as "schema",
           table_name as "table",
@@ -81,9 +87,10 @@ export class PostgresBackend implements SQLBackend {
           AND table_schema != 'pg_catalog'
           AND table_schema != 'pg_toast'
       `,
-    );
-    const schemas = await this.client.query<{ name: string }>(
-      `
+      );
+    const getSchemas = () =>
+      this.client.query<{ name: string }>(
+        `
         SELECT
           schema_name as "name"
         FROM
@@ -93,14 +100,29 @@ export class PostgresBackend implements SQLBackend {
           AND schema_name != 'pg_catalog'
           AND schema_name != 'pg_toast'
       `,
-    );
-    const policies = await this.client.query<{
-      schema: string;
-      table: string;
-      name: string;
-      users: string;
-    }>(
-      `
+      );
+    const getViews = () =>
+      this.client.query<{ schema: string; name: string }>(
+        `
+        SELECT
+          table_schema as "schema",
+          table_name as "name"
+        FROM
+          information_schema.views
+        WHERE
+          table_schema != 'information_schema'
+          AND table_schema != 'pg_catalog'
+          AND table_schema != 'pg_toast'
+      `,
+      );
+    const getPolicies = () =>
+      this.client.query<{
+        schema: string;
+        table: string;
+        name: string;
+        users: string;
+      }>(
+        `
         SELECT
           schemaname as "schema",
           tablename as "table",
@@ -113,13 +135,14 @@ export class PostgresBackend implements SQLBackend {
           AND schemaname != 'pg_catalog'
           AND schemaname != 'pg_toast'
       `,
-    );
-    const functions = await this.client.query<{
-      schema: string;
-      name: string;
-      builtin: boolean;
-    }>(
-      `
+      );
+    const getFunctions = () =>
+      this.client.query<{
+        schema: string;
+        name: string;
+        builtin: boolean;
+      }>(
+        `
         SELECT
           n.nspname as "schema",
           p.proname as "name",
@@ -130,7 +153,27 @@ export class PostgresBackend implements SQLBackend {
         WHERE
           pg_catalog.pg_function_is_visible(p.oid);
       `,
-    );
+      );
+
+    const [
+      users,
+      groups,
+      tables,
+      tableColumns,
+      schemas,
+      views,
+      policies,
+      functions,
+    ] = await Promise.all([
+      getUsers(),
+      getGroups(),
+      getTables(),
+      getTableColumns(),
+      getSchemas(),
+      getViews(),
+      getPolicies(),
+      getFunctions(),
+    ]);
 
     const tableItems: Record<string, SQLTableMetadata> = {};
     for (const table of tables.rows) {
@@ -145,7 +188,9 @@ export class PostgresBackend implements SQLBackend {
 
     for (const row of tableColumns.rows) {
       const fullName = `${row.schema}.${row.table}`;
-      tableItems[fullName]!.columns.push(row.name);
+      if (tableItems[fullName]) {
+        tableItems[fullName]!.columns.push(row.name);
+      }
     }
 
     const parseArray = (value: string): string[] => {
@@ -156,6 +201,11 @@ export class PostgresBackend implements SQLBackend {
       users: users.rows.map((row) => ({ type: "user", name: row.name })),
       groups: groups.rows.map((row) => ({ type: "group", name: row.name })),
       schemas: schemas.rows.map((row) => ({ type: "schema", name: row.name })),
+      views: views.rows.map((row) => ({
+        type: "view",
+        schema: row.schema,
+        name: row.name,
+      })),
       tables: Object.values(tableItems),
       rlsPolicies: policies.rows.map((row) => ({
         type: "rls-policy",
@@ -174,19 +224,15 @@ export class PostgresBackend implements SQLBackend {
     return JSON.stringify(identifier);
   }
 
-  private quoteSchemaName(schema: SQLSchema): string {
+  private quoteTopLevelName(schema: SQLSchema | SQLActor): string {
     return this.quoteIdentifier(schema.name);
   }
 
-  private quoteTableName(table: SQLTable): string {
+  private quoteQualifiedName(table: SQLTable | SQLView): string {
     return [
       this.quoteIdentifier(table.schema),
       this.quoteIdentifier(table.name),
     ].join(".");
-  }
-
-  private quoteUserName(user: SQLActor): string {
-    return this.quoteIdentifier(user.name);
   }
 
   private async loadSqlFile(
@@ -244,7 +290,7 @@ export class PostgresBackend implements SQLBackend {
         const dropQueries = policiesToDrop.map(
           (policy) =>
             `DROP POLICY ${this.quoteIdentifier(policy.name)} ` +
-            `ON ${this.quoteTableName(policy.table)};`,
+            `ON ${this.quoteQualifiedName(policy.table)};`,
         );
 
         return revokeQueries.concat(dropQueries);
@@ -252,20 +298,20 @@ export class PostgresBackend implements SQLBackend {
       compileGrantQueries: (permissions, entities) => {
         const metaByTable = Object.fromEntries(
           entities.tables.map((table) => [
-            this.quoteTableName(table.table),
+            this.quoteQualifiedName(table.table),
             table,
           ]),
         );
 
         const tablesToAddRlsTo = new Set<string>();
         for (const perm of permissions) {
-          if (perm.type === "schema") {
+          if (perm.type !== "table") {
             continue;
           }
           if (isTrueClause(perm.rowClause)) {
             continue;
           }
-          const tableName = this.quoteTableName(perm.table);
+          const tableName = this.quoteQualifiedName(perm.table);
           const table = metaByTable[tableName];
           if (!table) {
             continue;
@@ -385,16 +431,11 @@ export class PostgresBackend implements SQLBackend {
       case "schema":
         switch (permission.privilege) {
           case "USAGE":
-            return [
-              `GRANT USAGE ON SCHEMA ${this.quoteSchemaName(
-                permission.schema,
-              )} TO ${this.quoteUserName(permission.user)};`,
-            ];
           case "CREATE":
             return [
-              `GRANT CREATE ON SCHEMA ${this.quoteSchemaName(
+              `GRANT ${permission.privilege} ON SCHEMA ${this.quoteTopLevelName(
                 permission.schema,
-              )} TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
           default: {
             const _: never = permission;
@@ -425,9 +466,9 @@ export class PostgresBackend implements SQLBackend {
         switch (permission.privilege) {
           case "SELECT": {
             const out = [
-              `GRANT SELECT${columnPart} ON ${this.quoteTableName(
+              `GRANT SELECT${columnPart} ON ${this.quoteQualifiedName(
                 permission.table,
-              )} TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -442,9 +483,9 @@ export class PostgresBackend implements SQLBackend {
               out.push(
                 `CREATE POLICY ${this.quoteIdentifier(
                   policyName,
-                )} ON ${this.quoteTableName(
+                )} ON ${this.quoteQualifiedName(
                   permission.table,
-                )} AS RESTRICTIVE FOR SELECT TO ${this.quoteUserName(
+                )} AS RESTRICTIVE FOR SELECT TO ${this.quoteTopLevelName(
                   permission.user,
                 )} USING (${this.clauseToSql(permission.rowClause)});`,
               );
@@ -453,9 +494,9 @@ export class PostgresBackend implements SQLBackend {
           }
           case "INSERT": {
             const out = [
-              `GRANT INSERT${columnPart} ON ${this.quoteTableName(
+              `GRANT INSERT${columnPart} ON ${this.quoteQualifiedName(
                 permission.table,
-              )} TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -470,9 +511,9 @@ export class PostgresBackend implements SQLBackend {
               out.push(
                 `CREATE POLICY ${this.quoteIdentifier(
                   policyName,
-                )} ON ${this.quoteTableName(
+                )} ON ${this.quoteQualifiedName(
                   permission.table,
-                )} AS RESTRICTIVE FOR INSERT TO ${this.quoteUserName(
+                )} AS RESTRICTIVE FOR INSERT TO ${this.quoteTopLevelName(
                   permission.user,
                 )} WITH CHECK (${this.clauseToSql(permission.rowClause)});`,
               );
@@ -481,9 +522,9 @@ export class PostgresBackend implements SQLBackend {
           }
           case "UPDATE": {
             const out = [
-              `GRANT UPDATE${columnPart} ON ${this.quoteTableName(
+              `GRANT UPDATE${columnPart} ON ${this.quoteQualifiedName(
                 permission.table,
-              )} TO ${this.quoteUserName(permission.user)};`,
+              )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -498,9 +539,9 @@ export class PostgresBackend implements SQLBackend {
               out.push(
                 `CREATE POLICY ${this.quoteIdentifier(
                   policyName,
-                )} ON ${this.quoteTableName(
+                )} ON ${this.quoteQualifiedName(
                   permission.table,
-                )} AS RESTRICTIVE FOR UPDATE TO ${this.quoteUserName(
+                )} AS RESTRICTIVE FOR UPDATE TO ${this.quoteTopLevelName(
                   permission.user,
                 )} USING (${this.clauseToSql(permission.rowClause)});`,
               );
@@ -509,8 +550,8 @@ export class PostgresBackend implements SQLBackend {
           }
           case "DELETE": {
             const out = [
-              `GRANT DELETE ON ${this.quoteTableName(permission.table)} ` +
-                `TO ${this.quoteUserName(permission.user)};`,
+              `GRANT DELETE ON ${this.quoteQualifiedName(permission.table)} ` +
+                `TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
               const policyName = [
@@ -525,9 +566,9 @@ export class PostgresBackend implements SQLBackend {
               out.push(
                 `CREATE POLICY ${this.quoteIdentifier(
                   policyName,
-                )} ON ${this.quoteTableName(
+                )} ON ${this.quoteQualifiedName(
                   permission.table,
-                )} AS RESTRICTIVE FOR DELETE TO ${this.quoteUserName(
+                )} AS RESTRICTIVE FOR DELETE TO ${this.quoteTopLevelName(
                   permission.user,
                 )} USING (${this.clauseToSql(permission.rowClause)});`,
               );
@@ -536,18 +577,20 @@ export class PostgresBackend implements SQLBackend {
           }
           case "TRUNCATE":
             return [
-              `GRANT TRUNCATE ON ${this.quoteTableName(permission.table)} ` +
-                `TO ${this.quoteUserName(permission.user)};`,
+              `GRANT TRUNCATE ON ${this.quoteQualifiedName(
+                permission.table,
+              )} ` + `TO ${this.quoteTopLevelName(permission.user)};`,
             ];
           case "TRIGGER":
             return [
-              `GRANT TRIGGER ON ${this.quoteTableName(permission.table)} ` +
-                `TO ${this.quoteUserName(permission.user)};`,
+              `GRANT TRIGGER ON ${this.quoteQualifiedName(permission.table)} ` +
+                `TO ${this.quoteTopLevelName(permission.user)};`,
             ];
           case "REFERENCES":
             return [
-              `GRANT REFERENCES ON ${this.quoteTableName(permission.table)} ` +
-                `TO ${this.quoteUserName(permission.user)};`,
+              `GRANT REFERENCES ON ${this.quoteQualifiedName(
+                permission.table,
+              )} ` + `TO ${this.quoteTopLevelName(permission.user)};`,
             ];
           default: {
             const _: never = permission;
@@ -557,6 +600,26 @@ export class PostgresBackend implements SQLBackend {
               }`,
             );
           }
+        }
+      }
+      case "view": {
+        switch (permission.privilege) {
+          case "DELETE":
+          case "INSERT":
+          case "SELECT":
+          case "TRIGGER":
+          case "UPDATE":
+            return [
+              `GRANT ${permission.privilege} ON ${this.quoteQualifiedName(
+                permission.view,
+              )} ` + `TO ${this.quoteTopLevelName(permission.user)};`,
+            ];
+          default:
+            throw new Error(
+              `Invalid view privilege: ${
+                (permission as ViewPermission).privilege
+              }`,
+            );
         }
       }
       default: {
