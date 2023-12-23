@@ -253,7 +253,74 @@ This can also be specified on the command line. See the [CLI Configuration](#cli
 
 ## Examples
 
-These are a limited set of examples on how you can express certain rule sets in `sqlauthz` using polar. Note that the possiblities are nearly endless, and you should learn about the [Polar language](https://www.osohq.com/docs/reference/polar/foundations) if you want to have a firm grasp on everything that's possible.
+These are a limited set of examples on how you can express certain rule sets in `sqlauthz` using polar. Note that the possiblities are nearly endless, and you should learn about the [Polar language](https://www.osohq.com/docs/reference/polar/foundations) if you want to have a firm grasp on everything that's possible. You can also check out the [tests](https://github.com/cfeenstra67/sqlauthz/tree/main/test/rules), which includes many minimal examples of rules. If you're not sure if something's possible or how to do it, always feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and I'll be happy to help you our and/or augment these examples with what you're looking for.
+
+### A complete example
+
+This example shows how you can effectively segment your permissions into various virtual "roles" that can easily be assigned to new users and/or groups. This is split up into multiple scripts as an example of how you might want to organize your rules into a few different files.
+
+`permissions.polar`
+```polar
+# Grant everyone USAGE on all schemas except the `sensitive` one
+allow(actor, "usage", resource)
+    if isQA(actor)
+    and resource.type == "schema"
+    and resource != "sensitive";
+
+# Grant devs USAGE on the `sensitive` schema
+allow(actor, "usage", "sensitive") if isDev(actor);
+
+# Grant everyone read-only access to all tables and views except those in the "sensitive"
+# schema. Grant devs read-only access on the `usage` tables as well
+allow(actor, "select", resource)
+    if isQA(actor)
+    and type in ["table", "view"]
+    and resource.type == type
+    and resource.schema != "sensitive";
+
+# Grant devs full access on all tables and views except the TRUNCATE permission
+allow(actor, permission, resource)
+    if isDev(actor)
+    and permission != "truncate"
+    and type in ["table", "view"]
+    and resource.type == type;
+
+# Grant app users access to the `app.users` table limited by row-level security
+# based on the current user.org_id setting. This would be set in the application
+# code via a `SET ` query before running other queries, and queries would fail without
+# this set. Do not allow them to access the "internal_notes" column
+allow(actor, permission, resource)
+    if isApp(actor)
+    and permission in ["select", "insert", "update", "delete"]
+    and resource == "app.users"
+    and resource.col != "internal_notes"
+    and resource.row.org_id = sql.current_setting("user.org_id");
+```
+
+`roles.polar`
+```polar
+# Assign some users as "devs", which will get a certain set of permissions
+isDev(actor)
+    if name in ["bob", "greg", "julie", "marianne"]
+    and actor.type == "user"
+    and actor == name;
+
+# Assign some users to the QA grouop, which will get a certain set of permissions
+# This is equivalent to the isDev syntax above except these rules don't check that
+# the actor is a user and not a group (which usually shouldn't be an issue, but it
+# could depend on how your DB is set up. When using `sqlauthz` using postgresql groups
+# shouldn't really be necessary)
+isQA("randy");
+isQA("john");
+isQA("ariel");
+
+# Devs should have all of the QA permissions
+isQA(actor) if isDev(actor);
+
+# Virtual group for DB roles used by apps
+isApp("api_svc");
+isApp("worker_svc");
+```
 
 ### Grant a user or group all permissions on all schemas
 
@@ -295,11 +362,13 @@ allow("bob", "select", resource)
 
 The primary motivation for creating `sqlauthz` was that although PostgreSQL supports fine-grained permissions including row and column-level security, I've always found it difficult to take advantage of these features in real production systems.
 
-The difficult thing about fully making use of fine-grained permissions is mainly maintaining them as the number of roles and database objects grow, which tends to happen at a pretty rapid clip in many actively developed applications.
+The difficult thing about fully making use of fine-grained permissions is mainly maintaining them as the number of roles and database objects grow, which tends to happen at a pretty rapid clip in many actively developed applications. Using most SQL migration tools, either:
+- You do define your objects declaratively (e.g. many ORMs) and the tool generates your SQL scripts for you, but typically these tools only support operations tables.
+- Your write your SQL scripts yourself, in which case it can be very difficult to understand the current state of your database as the number of scripts grow.
 
 Declarative configuration is an excellent fit for maintaining complex systems as they change over time because the maintainer need only decide the state they want their system to be in, not the steps needed to get there. This is a very popular feature of ORMs, where they inspect models declared in code and generate SQL migrations scripts to update the database to match the state of the declared models. Similarly, infrastructure-as-code tools take a declarative configuration of desired cloud resources and make API calls to update your cloud resources to the desired state.
 
-`sqlauthz` takes the declarative configuration approach and applies it to PostgreSQL permissions. It's designed so that writing simple rules is simple, but it's also easy to scale the complexity of the rules to be as fine-grained as you want them to be. It takes a zero-access-by-default approach, so that all permissions need to be explicitly granted to a user. I chose the polar language because I've had success with it in other projects as a great, clean way to write authorization rules. And at the day, the difference between 
+`sqlauthz` takes the declarative configuration approach and applies it to PostgreSQL permissions. It's designed so that writing simple rules is simple, but it's also easy to scale the complexity of the rules to be as fine-grained as you want them to be. It takes a zero-access-by-default approach, so that all permissions need to be explicitly granted to a user. I chose the polar language because I've had success with it in other projects as a great, clean way to write authorization rules.
 
 ## Limitations
 
