@@ -256,6 +256,8 @@ One thing to be careful of when defining permissions with `sqlauthz` is that the
 
 - **insert permissions for autoincremented primary keys depend on the sequence's usage permission** - If you defined an `INSERT` permission for a table and are using an autoincremented primary key such as a `SERIAL` or `BIGSERIAL` type, you will get a "permission denied" error if you do not also grant access to the underlying sequence that provides values for that column. Sequences created for autoincremented postgres columns are created in the same schema as the table, and are named `<schema>.<table>_<name>_seq`. E.g. for the `id` column of a table called `app.users`, the sequence would be `app.users_id_seq`.
 
+It can often be tricky to get permissions right on the first try; for this reason, it's recommended that you do some testing after applying your permissions to confirm that they're doing what you expect.
+
 ## Incremental Adoption
 
 In most cases, you'll be adopting `sqlauthz` into an existing database that already had roles, and possibly permissions, defined. It's a good idea to start by creating new role(s) to be managed by `sqlauthz`, and managing only those roles with `sqlauthz`. To achieve this, you should use the `users` revoke strategy to ensure you don't affect the permissions of any of your existing users. You can achieve this using the `revokeUsers` argument. For example, in your `package.json`:
