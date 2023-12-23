@@ -254,7 +254,7 @@ One thing to be careful of when defining permissions with `sqlauthz` is that the
 
 - **object permissions depend on the schema's usage permission** - If you defined permission on objects within a schema such a `SELECT` on a table or view, you will still get a "permission denied" message with the user attempting to utilize that permission unless you grant `USAGE` on the schema in which the object exists. For example, if you grant a user the `SELECT` permission on a table called `app.users`, you must also grant the user the `USAGE` permission on the `app` schema in order to utilize it.
 
-- **insert permissions for autoincremented primary keys depend on the sequence's usage permission** - If you defined an `INSERT` permission for a table and are using an autoincremented primary key such as a `SERIAL` or `BIGSERIAL` type, you will get a "permission denied" error if you do not also grant access to the underlying sequence that provides values for that column.
+- **insert permissions for autoincremented primary keys depend on the sequence's usage permission** - If you defined an `INSERT` permission for a table and are using an autoincremented primary key such as a `SERIAL` or `BIGSERIAL` type, you will get a "permission denied" error if you do not also grant access to the underlying sequence that provides values for that column. Sequences created for autoincremented postgres columns are created in the same schema as the table, and are named `<schema>.<table>_<name>_seq`. E.g. for the `id` column of a table called `app.users`, the sequence would be `app.users_id_seq`.
 
 ## Incremental Adoption
 
