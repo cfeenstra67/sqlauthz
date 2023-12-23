@@ -26,10 +26,13 @@ import {
   SQLFunction,
   SQLProcedure,
   SQLSchema,
+  SQLSequence,
   SQLTableMetadata,
   SQLView,
   SchemaPermission,
   SchemaPrivileges,
+  SequencePermission,
+  SequencePrivileges,
   TablePermission,
   TablePrivileges,
   ViewPermission,
@@ -486,6 +489,13 @@ const procedureEvaluator =
     getSchema: (obj) => obj.schema,
   });
 
+const sequenceEvaluator =
+  simpleSchemaQualifiedObjectEvaluatorFactory<SQLSequence>({
+    type: "sequence",
+    getName: (obj) => obj.name,
+    getSchema: (obj) => obj.schema,
+  });
+
 interface PermissionEvaluatorArgs {
   permission: string;
   debug?: boolean;
@@ -854,6 +864,65 @@ const handlers: Handlers = {
         formatQualifiedName(
           permission.procedure.schema,
           permission.procedure.name,
+        ),
+      ].join(",");
+    },
+    deduplicate: (permissions) => {
+      return permissions[0]!;
+    },
+  },
+  sequence: {
+    privileges: SequencePrivileges,
+    getPermissions: ({
+      clause,
+      users,
+      privileges,
+      entities,
+      strictFields,
+      debug,
+    }) => {
+      const sequences: SQLSequence[] = [];
+      const errors: string[] = [];
+      const permissions: SequencePermission[] = [];
+      for (const sequence of entities.sequences) {
+        const result = evaluateClause({
+          clause,
+          evaluate: sequenceEvaluator({ obj: sequence, debug }),
+          strictFields,
+        });
+        if (result.type === "error") {
+          errors.push(...result.errors);
+        } else if (result.result) {
+          sequences.push(sequence);
+        }
+      }
+
+      for (const [user, privilege, sequence] of arrayProduct([
+        users,
+        privileges,
+        sequences,
+      ])) {
+        permissions.push({
+          type: "sequence",
+          sequence,
+          privilege,
+          user,
+        });
+      }
+
+      if (errors.length > 0) {
+        return { type: "error", errors };
+      }
+      return { type: "success", permissions };
+    },
+    getDeduplicationKey: (permission) => {
+      return [
+        permission.type,
+        permission.privilege,
+        permission.user.name,
+        formatQualifiedName(
+          permission.sequence.schema,
+          permission.sequence.name,
         ),
       ].join(",");
     },

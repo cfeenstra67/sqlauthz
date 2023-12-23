@@ -33,6 +33,7 @@ Currently `sqlauthz` support PostgreSQL as a backend, and it allows you to defin
 - Table permissions **including column and row-level security**
 - View permissions
 - Function and procedure permissions
+- Sequence permissions
 
 To get started, check out the [Table of Contents](#table-of-contents) below.
 
@@ -168,6 +169,7 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
     - Schema permissions - `"usage"`, `"create"`
     - View permissions - `"select"`, `"insert"`, `"update"`, `"delete"`, `"trigger"`. Note that only "simple views" are updatable, see the [postgres documentation](https://www.postgresql.org/docs/current/sql-createview.html) for more details.
     - Function and procedure permissions - `"execute"`
+    - Sequence permissions - `"select"`, `"update"`, `"usage"`
 
 - `resource` - This can represent either a **table** or a **schema**. The semantics are different for different types of database objects, described below:
     - **tables** - Can be compared directly with strings. When comparing directly table names must be schema-qualified. e.g. `resource == "someschema.sometable"`
@@ -192,6 +194,10 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
          - `resource.type` - Equal to `"procedure"` e.g. `resource.type == "procedure"`
          - `resource.name` - The procedure name, without schema e.g. `resource.name == "someprocedure"`
          - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
+    - **sequences** - Can be compared directly with strings e.g. `resource == "myschema.mysequence"`
+        - `resource.type` - Equal to `"sequence"` e.g. `resource.type == "sequence"`
+        - `resource.name` - The sequence name, without schema e.g. `resource.name == "somesequence"`
+        - `resource.schema` - The schem aname, e.g. `resource.shcmea == "someschema"`
 
 For a full explanation of polar semantics, you can read the [Polar Documentation](https://www.osohq.com/docs/reference/polar/foundations).
 
@@ -299,7 +305,7 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 
 `sqlauthz` is still very early in its development and while it should have enough functionality to be usable for a lot of use-cases, there's a lot of functionality missing as well. More or less all of these are on my radar as improvement to make eventually, however if any of these are particularly important to you feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and let me know. That will help me prioritize what to work on first.
 
-- Currently only supports permissions on tables, views, schemas, functions, and procedures (not sequences, types, languages, etc.).
+- Currently only supports permissions on tables, views, schemas, functions, procedures, and sequences (not types, languages, large objects, etc.).
 
 - **`sqlauthz` never alters default privileges.** Let me know via opening an issue if this is something you're interested in. In particular, by default all users have EXECUTE privleges on functions and procedures. To change this, you can use the following one-time query:
 ```sql

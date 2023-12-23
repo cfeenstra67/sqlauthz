@@ -46,6 +46,12 @@ export interface SQLProcedure {
   builtin: boolean;
 }
 
+export interface SQLSequence {
+  type: "sequence";
+  schema: string;
+  name: string;
+}
+
 export interface SQLUser {
   type: "user";
   name: string;
@@ -92,6 +98,10 @@ export const ProcedurePrivileges = ["EXECUTE"] as const;
 
 export type ProcedurePrivilege = (typeof FunctionPrivileges)[number];
 
+export const SequencePrivileges = ["USAGE", "SELECT", "UPDATE"] as const;
+
+export type SequencePrivilege = (typeof SequencePrivileges)[number];
+
 export interface BasePermission {
   user: SQLActor;
 }
@@ -128,12 +138,19 @@ export interface ProcedurePermission extends BasePermission {
   privilege: ProcedurePrivilege;
 }
 
+export interface SequencePermission extends BasePermission {
+  type: "sequence";
+  sequence: SQLSequence;
+  privilege: SequencePrivilege;
+}
+
 export type Permission =
   | TablePermission
   | SchemaPermission
   | ViewPermission
   | FunctionPermission
-  | ProcedurePermission;
+  | ProcedurePermission
+  | SequencePermission;
 
 export type Privilege = {
   [P in Permission as P["type"]]: P["privilege"];

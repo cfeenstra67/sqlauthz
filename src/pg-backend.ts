@@ -18,6 +18,7 @@ import {
   SQLFunction,
   SQLProcedure,
   SQLSchema,
+  SQLSequence,
   SQLTable,
   SQLTableMetadata,
   SQLView,
@@ -37,22 +38,24 @@ export class PostgresBackend implements SQLBackend {
     const getUsers = () =>
       this.client.query<{ name: string }>(
         `
-        SELECT
-          usename as "name"
-        FROM
-          pg_catalog.pg_user
-        WHERE NOT usesuper
-      `,
+          SELECT
+            usename as "name"
+          FROM
+            pg_catalog.pg_user
+          WHERE NOT usesuper
+        `,
       );
+
     const getGroups = () =>
       this.client.query<{ name: string }>(
         `
-        SELECT
-          groname as "name"
-        FROM
-          pg_catalog.pg_group
-      `,
+          SELECT
+            groname as "name"
+          FROM
+            pg_catalog.pg_group
+        `,
       );
+
     const getTables = () =>
       this.client.query<{
         schema: string;
@@ -60,18 +63,19 @@ export class PostgresBackend implements SQLBackend {
         rlsEnabled: boolean;
       }>(
         `
-        SELECT
-          schemaname as "schema",
-          tablename as "name",
-          rowsecurity as "rlsEnabled"
-        FROM
-          pg_tables
-        WHERE
-          schemaname != 'information_schema'
-          AND schemaname != 'pg_catalog'
-          AND schemaname != 'pg_toast'
-      `,
+          SELECT
+            schemaname as "schema",
+            tablename as "name",
+            rowsecurity as "rlsEnabled"
+          FROM
+            pg_tables
+          WHERE
+            schemaname != 'information_schema'
+            AND schemaname != 'pg_catalog'
+            AND schemaname != 'pg_toast'
+        `,
       );
+
     const getTableColumns = () =>
       this.client.query<{
         schema: string;
@@ -79,45 +83,48 @@ export class PostgresBackend implements SQLBackend {
         name: string;
       }>(
         `
-        SELECT
-          table_schema as "schema",
-          table_name as "table",
-          column_name as "name"
-        FROM
-          information_schema.columns
-        WHERE
-          table_schema != 'information_schema'
-          AND table_schema != 'pg_catalog'
-          AND table_schema != 'pg_toast'
-      `,
+          SELECT
+            table_schema as "schema",
+            table_name as "table",
+            column_name as "name"
+          FROM
+            information_schema.columns
+          WHERE
+            table_schema != 'information_schema'
+            AND table_schema != 'pg_catalog'
+            AND table_schema != 'pg_toast'
+        `,
       );
+
     const getSchemas = () =>
       this.client.query<{ name: string }>(
         `
-        SELECT
-          schema_name as "name"
-        FROM
-          information_schema.schemata
-        WHERE
-          schema_name != 'information_schema'
-          AND schema_name != 'pg_catalog'
-          AND schema_name != 'pg_toast'
-      `,
+          SELECT
+            schema_name as "name"
+          FROM
+            information_schema.schemata
+          WHERE
+            schema_name != 'information_schema'
+            AND schema_name != 'pg_catalog'
+            AND schema_name != 'pg_toast'
+        `,
       );
+
     const getViews = () =>
       this.client.query<{ schema: string; name: string }>(
         `
-        SELECT
-          table_schema as "schema",
-          table_name as "name"
-        FROM
-          information_schema.views
-        WHERE
-          table_schema != 'information_schema'
-          AND table_schema != 'pg_catalog'
-          AND table_schema != 'pg_toast'
-      `,
+          SELECT
+            table_schema as "schema",
+            table_name as "name"
+          FROM
+            information_schema.views
+          WHERE
+            table_schema != 'information_schema'
+            AND table_schema != 'pg_catalog'
+            AND table_schema != 'pg_toast'
+        `,
       );
+
     const getPolicies = () =>
       this.client.query<{
         schema: string;
@@ -126,19 +133,20 @@ export class PostgresBackend implements SQLBackend {
         users: string;
       }>(
         `
-        SELECT
-          schemaname as "schema",
-          tablename as "table",
-          policyname as "name",
-          roles as "users"
-        FROM
-          pg_policies
-        WHERE
-          schemaname != 'information_schema'
-          AND schemaname != 'pg_catalog'
-          AND schemaname != 'pg_toast'
-      `,
+          SELECT
+            schemaname as "schema",
+            tablename as "table",
+            policyname as "name",
+            roles as "users"
+          FROM
+            pg_policies
+          WHERE
+            schemaname != 'information_schema'
+            AND schemaname != 'pg_catalog'
+            AND schemaname != 'pg_toast'
+        `,
       );
+
     const getFunctionsAndProcedures = () =>
       this.client.query<{
         schema: string;
@@ -147,18 +155,33 @@ export class PostgresBackend implements SQLBackend {
         builtin: boolean;
       }>(
         `
-        SELECT
-          n.nspname as "schema",
-          p.proname as "name",
-          p.prokind = 'p' as "isProcedure",
-          n.nspname = 'pg_catalog' as "builtin"
-        FROM
-          pg_catalog.pg_proc p
-          LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-        WHERE
-          n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-          OR pg_catalog.pg_function_is_visible(p.oid);
-      `,
+          SELECT
+            n.nspname as "schema",
+            p.proname as "name",
+            p.prokind = 'p' as "isProcedure",
+            n.nspname = 'pg_catalog' as "builtin"
+          FROM
+            pg_catalog.pg_proc p
+            LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+          WHERE
+            n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+            OR pg_catalog.pg_function_is_visible(p.oid);
+        `,
+      );
+
+    const getSequences = () =>
+      this.client.query<{ name: string; schema: string }>(
+        `
+          SELECT
+            sequence_name as "name",
+            sequence_schema as "schema"
+          FROM
+            information_schema.sequences s
+          WHERE
+            sequence_schema != 'information_schema'
+            AND sequence_schema != 'pg_catalog'
+            AND sequence_schema != 'pg_toast'
+        `,
       );
 
     const [
@@ -170,6 +193,7 @@ export class PostgresBackend implements SQLBackend {
       views,
       policies,
       functionsAndProcedures,
+      sequences,
     ] = await Promise.all([
       getUsers(),
       getGroups(),
@@ -179,6 +203,7 @@ export class PostgresBackend implements SQLBackend {
       getViews(),
       getPolicies(),
       getFunctionsAndProcedures(),
+      getSequences(),
     ]);
 
     const tableItems: Record<string, SQLTableMetadata> = {};
@@ -249,6 +274,7 @@ export class PostgresBackend implements SQLBackend {
       })),
       functions,
       procedures,
+      sequences: sequences.rows.map((row) => ({ type: "sequence", ...row })),
     };
   }
 
@@ -261,7 +287,7 @@ export class PostgresBackend implements SQLBackend {
   }
 
   private quoteQualifiedName(
-    table: SQLTable | SQLView | SQLFunction | SQLProcedure,
+    table: SQLTable | SQLView | SQLFunction | SQLProcedure | SQLSequence,
   ): string {
     return [
       this.quoteIdentifier(table.schema),
@@ -688,6 +714,26 @@ export class PostgresBackend implements SQLBackend {
             const _: never = permission;
             throw new Error(
               `Invalid procedure privilege: ${
+                (permission as FunctionPermission).privilege
+              }`,
+            );
+          }
+        }
+      }
+      case "sequence": {
+        switch (permission.privilege) {
+          case "USAGE":
+          case "SELECT":
+          case "UPDATE":
+            return [
+              `GRANT ${permission.privilege} ON SEQUENCE ` +
+                `${this.quoteQualifiedName(permission.sequence)} ` +
+                `TO ${this.quoteTopLevelName(permission.user)};`,
+            ];
+          default: {
+            const _: never = permission;
+            throw new Error(
+              `Invalid sequence privilege: ${
                 (permission as FunctionPermission).privilege
               }`,
             );

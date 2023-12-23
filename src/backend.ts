@@ -5,6 +5,7 @@ import {
   SQLProcedure,
   SQLRowLevelSecurityPolicy,
   SQLSchema,
+  SQLSequence,
   SQLTableMetadata,
   SQLUser,
   SQLView,
@@ -19,6 +20,7 @@ export interface SQLEntities {
   rlsPolicies: SQLRowLevelSecurityPolicy[];
   functions: SQLFunction[];
   procedures: SQLProcedure[];
+  sequences: SQLSequence[];
 }
 
 export interface SQLBackendContext {

@@ -654,3 +654,76 @@ for (const rules of [
     });
   });
 }
+
+for (const rules of ["sequence-1", "sequence-2"]) {
+  describe(`test-${rules}`, async () => {
+    const user1 = userNameGenerator();
+    const db = dbNameGenerator();
+    const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+    let teardown: () => Promise<void> = async () => {};
+
+    before(async () => {
+      teardown = await setupEnv("sequence", rules, db, {
+        user1,
+      });
+    });
+
+    after(async () => {
+      await teardown();
+    });
+
+    for (const [seq, num] of [
+      ["test.seq1", 99],
+      ["test.seq2", 72],
+    ] as const) {
+      await it(`user1: can access ${seq}`, async () => {
+        await useClient(async (client) => {
+          const result = await client.query<{ val: string }>(
+            `SELECT nextval('${seq}') as val`,
+          );
+          assert.equal(result.rowCount, 1);
+          assert.equal(result.rows[0]?.val, num);
+        });
+      });
+    }
+  });
+}
+
+for (const rules of ["sequence-3", "sequence-4"]) {
+  describe(`test-${rules}`, async () => {
+    const user1 = userNameGenerator();
+    const db = dbNameGenerator();
+    const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+    let teardown: () => Promise<void> = async () => {};
+
+    before(async () => {
+      teardown = await setupEnv("sequence", rules, db, {
+        user1,
+      });
+    });
+
+    after(async () => {
+      await teardown();
+    });
+
+    await it("user1: can access test.seq1", async () => {
+      await useClient(async (client) => {
+        const result = await client.query<{ val: string }>(
+          `SELECT nextval('test.seq1') as val`,
+        );
+        assert.equal(result.rowCount, 1);
+        assert.equal(result.rows[0]?.val, 99);
+      });
+    });
+
+    await it("user1: cannot access test.seq2", async () => {
+      await useClient(async (client) => {
+        await assert.rejects(client.query("SELECT nextval('test.seq2')"), {
+          message: "permission denied for sequence seq2",
+        });
+      });
+    });
+  });
+}
