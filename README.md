@@ -1,7 +1,7 @@
 # sqlauthz - Declarative permissions management for PostgreSQL
 
 > [!WARNING]
-> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's recommended that you **inspect the SQL queries** that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
+> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's highly recommended that you **inspect the SQL queries** that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
 
 `sqlauthz` allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
 
@@ -47,6 +47,8 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
 - [Using `sqlauthz` as a library](#using-sqlauthz-as-a-library)
 - [Writing rules](#writing-rules)
     - [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses)
+    - [Available constants](#available-constants)
+    - [Permissions that depend on one another](#permissions-that-depend-on-one-another)
 - [Incremental Adoption](#incremental-adoption)
 - [Examples](#examples)
     - [Grant a user all permissions on all schemas](#grant-a-user-all-permissions-on-all-schemas)
@@ -238,6 +240,22 @@ allow("bob", "select", table)
     and sql.date_trunc("day", table.row.updated_at) == sql.lit("2023-01-01T00:00:00");
 ```
 
+### Available constants
+
+`sqlauthz` exposes some constants that you can use in your polar rules. Available constants:
+    - `sql` - This contains utilities that you can use for writing row-level security rules with SQL functions. For examples see [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses). Available members:
+        - `<sql_function>` - Built-in SQL functions in Postgres such as `date_trunc`. Only functions from the `pg_catalog` schema can be referenced without schema-qualification.
+        - `<schema>.<sql_function>` - Schema-qualified SQL functions; typically these would be user-defined functions that you write.
+        - `lit` - Due to limitations in `sqlauthz`, when writing row-level security rules that compare the result of a SQL function with a literal, `lit()` must be used to wrap the literal. There is an example in the [previous section](#using-sql-functions-in-row-level-security-clauses).
+
+### Permissions that depend on one another
+
+One thing to be careful of when defining permissions with `sqlauthz` is that there are some permissions in Postgres that depend on one another. This list is not exhaustive, but rather meant to highlight some of the most common "gotchas" with respect to dependent permissions. For complete and up-to-date information on PostgreSQL privileges you should consult the [PostgreSQL documentation](https://www.postgresql.org/docs/current/ddl-priv.html).
+
+- **object permissions depend on the schema's usage permission** - If you defined permission on objects within a schema such a `SELECT` on a table or view, you will still get a "permission denied" message with the user attempting to utilize that permission unless you grant `USAGE` on the schema in which the object exists. For example, if you grant a user the `SELECT` permission on a table called `app.users`, you must also grant the user the `USAGE` permission on the `app` schema in order to utilize it.
+
+- **insert permissions for autoincremented primary keys depend on the sequence's usage permission** - If you defined an `INSERT` permission for a table and are using an autoincremented primary key such as a `SERIAL` or `BIGSERIAL` type, you will get a "permission denied" error if you do not also grant access to the underlying sequence that provides values for that column.
+
 ## Incremental Adoption
 
 In most cases, you'll be adopting `sqlauthz` into an existing database that already had roles, and possibly permissions, defined. It's a good idea to start by creating new role(s) to be managed by `sqlauthz`, and managing only those roles with `sqlauthz`. To achieve this, you should use the `users` revoke strategy to ensure you don't affect the permissions of any of your existing users. You can achieve this using the `revokeUsers` argument. For example, in your `package.json`:
@@ -270,20 +288,27 @@ allow(actor, "usage", resource)
 # Grant devs USAGE on the `sensitive` schema
 allow(actor, "usage", "sensitive") if isDev(actor);
 
-# Grant everyone read-only access to all tables and views except those in the "sensitive"
+# Grant QA read-only access to all tables and views except those in the "sensitive"
 # schema. Grant devs read-only access on the `usage` tables as well
 allow(actor, "select", resource)
     if isQA(actor)
-    and type in ["table", "view"]
-    and resource.type == type
+    and obj_type in ["table", "view"]
+    and resource.type == obj_type
     and resource.schema != "sensitive";
 
-# Grant devs full access on all tables and views except the TRUNCATE permission
+# Grant devs full access on all tables and views, and sequences
+# except the TRUNCATE permission
 allow(actor, permission, resource)
     if isDev(actor)
     and permission != "truncate"
-    and type in ["table", "view"]
-    and resource.type == type;
+    and obj_type in ["table", "view", "sequence"]
+    and resource.type == obj_type;
+
+# Grant app users usage on the app schema
+allow(actor, "usage", "app") if isApp(actor);
+
+# Grant app users usage on the app.users_id_seq sequence
+allow(actor, "usage", "app.users_id_seq") if isApp(actor);
 
 # Grant app users access to the `app.users` table limited by row-level security
 # based on the current user.org_id setting. This would be set in the application
@@ -294,7 +319,7 @@ allow(actor, permission, resource)
     and permission in ["select", "insert", "update", "delete"]
     and resource == "app.users"
     and resource.col != "internal_notes"
-    and resource.row.org_id = sql.current_setting("user.org_id");
+    and resource.row.org_id == sql.current_setting("user.org_id");
 ```
 
 `roles.polar`

@@ -727,3 +727,203 @@ for (const rules of ["sequence-3", "sequence-4"]) {
     });
   });
 }
+
+describe("test-complete-1", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const user3 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient1 = dbClientGenerator(dbUrl(user1, "blah", db));
+  const useClient2 = dbClientGenerator(dbUrl(user2, "blah", db));
+  const useClient3 = dbClientGenerator(dbUrl(user3, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("complete", "complete-1", db, {
+      user1,
+      user2,
+      user3,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: should be able to access the sensitive schema", async () => {
+    await useClient1(async (client) => {
+      const result = await client.query("SELECT * FROM sensitive.internal");
+      assert.equal(result.rowCount, 0);
+    });
+  });
+
+  await it("user1: should not be able to truncate sensitive.internal", async () => {
+    await useClient1(async (client) => {
+      await assert.rejects(client.query("TRUNCATE TABLE sensitive.internal"), {
+        message: "permission denied for table internal",
+      });
+    });
+  });
+
+  for (const [user, useClient] of [
+    ["user2", useClient2],
+    ["user3", useClient3],
+  ] as const) {
+    await it(`${user}: should not be able to access the sensitive schema`, async () => {
+      await useClient(async (client) => {
+        await assert.rejects(client.query("SELECT * FROM sensitive.internal"), {
+          message: "permission denied for schema sensitive",
+        });
+      });
+    });
+  }
+
+  for (const [user, useClient] of [
+    ["user1", useClient1],
+    ["user2", useClient2],
+  ] as const) {
+    await it(`${user}: should be able to read from app.articles`, async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM app.articles");
+        assert.equal(result.rowCount, 12);
+      });
+    });
+
+    await it(`${user}: should be able to read from app.articles_view`, async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM app.articles_view");
+        assert.equal(result.rowCount, 12);
+      });
+    });
+  }
+
+  await it("user3: should not be able to read from app.articles", async () => {
+    await useClient3(async (client) => {
+      await assert.rejects(client.query("SELECT * FROM app.articles"), {
+        message: "permission denied for table articles",
+      });
+    });
+  });
+
+  await it("user3: should not be able to read from app.articles_view", async () => {
+    await useClient3(async (client) => {
+      await assert.rejects(client.query("SELECT * FROM app.articles_view"), {
+        message: "permission denied for view articles_view",
+      });
+    });
+  });
+
+  for (const [user, useClient] of [
+    ["user1", useClient1],
+    ["user2", useClient2],
+  ] as const) {
+    await it(`${user}: should be able to read from app.users`, async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM app.users");
+        assert.equal(result.rowCount, 2);
+      });
+    });
+  }
+
+  await it("user3: should not be able to read from app.users without user.org_id set", async () => {
+    await useClient3(async (client) => {
+      await assert.rejects(client.query("SELECT id FROM app.users"), {
+        message: 'unrecognized configuration parameter "user.org_id"',
+      });
+    });
+  });
+
+  await it("user3: should not be able to read internal_notes from app.users", async () => {
+    await useClient3(async (client) => {
+      await client.query("SET SESSION \"user.org_id\" TO '12'");
+      await assert.rejects(
+        client.query("SELECT internal_notes FROM app.users"),
+        {
+          message: "permission denied for table users",
+        },
+      );
+    });
+  });
+
+  await it("user3: should be able to read from app.users with user.org_id set", async () => {
+    await useClient3(async (client) => {
+      await client.query("SET SESSION \"user.org_id\" TO '12'");
+      const result = await client.query("SELECT id FROM app.users");
+      assert.equal(result.rowCount, 1);
+    });
+  });
+
+  await it("user1: should be able to insert into app.users", async () => {
+    await useClient1(async (client) => {
+      const result = await client.query(
+        "INSERT INTO app.users (name, org_id, internal_notes) VALUES ('cam', '42', 'Notes')",
+      );
+      assert.equal(result.rowCount, 1);
+    });
+  });
+
+  await it("user2: should not be able to insert into app.users", async () => {
+    await useClient2(async (client) => {
+      await assert.rejects(
+        client.query(
+          "INSERT INTO app.users (name, org_id, internal_notes) VALUES ('cam', '42', 'Notes')",
+        ),
+        {
+          message: "permission denied for table users",
+        },
+      );
+    });
+  });
+
+  await it("user3: should not be able to insert into app.users without user.org_id set", async () => {
+    await useClient3(async (client) => {
+      await assert.rejects(
+        client.query(
+          "INSERT INTO app.users (name, org_id) VALUES ('cam', '42')",
+        ),
+        {
+          message: 'unrecognized configuration parameter "user.org_id"',
+        },
+      );
+    });
+  });
+
+  await it("user3: should be able to insert into app.users with user.org_id set", async () => {
+    await useClient3(async (client) => {
+      await client.query("SET \"user.org_id\" TO '32'");
+      const result = await client.query(
+        "INSERT INTO app.users (name, org_id) VALUES ('cam', '32');",
+      );
+      assert.equal(result.rowCount, 1);
+    });
+  });
+
+  await it("user3: should not be able to insert into app.users with user.org_id set to a different value than org_id", async () => {
+    await useClient3(async (client) => {
+      await client.query("SET \"user.org_id\" TO '32'");
+      await assert.rejects(
+        client.query(
+          "INSERT INTO app.users (name, org_id) VALUES ('cam', '42');",
+        ),
+        {
+          message: `new row violates row-level security policy "insert_app_users_${user3}" for table "users"`,
+        },
+      );
+    });
+  });
+
+  await it("user3: should not be able to insert into the internal_notes column", async () => {
+    await useClient3(async (client) => {
+      await client.query("SET \"user.org_id\" TO '32'");
+      await assert.rejects(
+        client.query(
+          "INSERT INTO app.users (name, org_id, internal_notes) VALUES ('cam', '42', 'Notes');",
+        ),
+        {
+          message: "permission denied for table users",
+        },
+      );
+    });
+  });
+});
