@@ -260,7 +260,7 @@ It can often be tricky to get permissions right on the first try; for this reaso
 
 ## Incremental Adoption
 
-In most cases, you'll be adopting `sqlauthz` into an existing database that already had roles, and possibly permissions, defined. It's a good idea to start by creating new role(s) to be managed by `sqlauthz`, and managing only those roles with `sqlauthz`. To achieve this, you should use the `users` revoke strategy to ensure you don't affect the permissions of any of your existing users. You can achieve this using the `revokeUsers` argument. For example, in your `package.json`:
+In most cases, you'll be adopting `sqlauthz` into an existing database that already has roles, and possibly permissions, defined. It's a good idea to start by creating new role(s) to be managed by `sqlauthz`, and managing only those roles with `sqlauthz`. To achieve this, you should use the `users` revoke strategy to ensure you don't affect the permissions of any of your existing users. You can achieve this using the `revokeUsers` argument. For example, in your `package.json`:
 ```json
 {
     ...
