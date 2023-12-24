@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for globs in `--rules` argument
 
+- Add support for `sql.cast()`
+
 ### Fixed
 
 - Error preventing usage of `--dry-run` and `--dry-run-short`
