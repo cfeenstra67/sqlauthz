@@ -51,6 +51,7 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
     - [Permissions that depend on one another](#permissions-that-depend-on-one-another)
 - [Incremental Adoption](#incremental-adoption)
 - [Examples](#examples)
+    - [A complete example](#a-complete-example)
     - [Grant a user all permissions on all schemas](#grant-a-user-all-permissions-on-all-schemas)
     - [Grant a group of users all permissions on a schema](#grant-a-group-of-users-all-permissions-on-a-schema)
     - [Grant a user read-only access on a schema](#grant-a-user-read-only-access-on-a-schema)
