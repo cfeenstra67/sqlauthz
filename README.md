@@ -99,6 +99,8 @@ The configuration options for `sqlauthz` can be found in the table below. Note t
 | `revokeAll`<br/>`--revoke-all`<br/>`SQLAUTHZ_REVOKE_ALL` | No | `false` | Use the `all` user revoke strategy. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeReferenced` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
 | `revokeUsers`<br/>`--revoke-users`<br/>`SQLAUTHZ_REVOKE_USERS` | No | `false` | Use the `users` revoke strategy, revoking permissions from a list of users explicitly. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeReferenced` and `revokeAll`. Note that if setting this via environment variable, only a single value can be passed. |
 | `allowAnyActor`<br/>`--allow-any-actor`<br/>`SQLAUTHZ_ALLOW_ANY_ACTOR` | No | `false` | Allow rules that do not put any limitations on the `actor`, so they apply to all users. This is potentially dangerous, particularly when used with `revokeReferenced` (the default), so it is disabled by default. This argument allows these rules (but make sure that you know what you're doing!). |
+| `var`<br/>`--var`<br/>`SQLAUTHZ_VAR` | No | <none> | Inject variables into scope that can be utilized by your rules files. The syntax for variables injected via command line is `<name>=<value>`. The CLI will attempt to parse `<value>` a JSON string, and if that fails it will just be interpreted as a string. Within your rules files, variables can be access with `var.<name>`. This can be used to parametrize your rules files, and separate your configuration from your permissions logic. Also see `--var-file` for more flexibility. |
+| `varFile`<br/>`--var-file`<br/>`SQLAUTHZ_VAR_FILE` | No | <none> | Specify script(s) or JSON file(s) that will be loaded, and their exports will be used to inject variables into your rules files. Glob paths are supported e.g. `*.js`. The file(s) must have `.js` or `.json` extensions. Within your rules files, variables can be access with `var.<name>`. `--var` will take priority over variables loaded from file(s) loaded with this argument. This can be used to separate your permissions logic from your configuration. For an example, see the [complete example](#a-complete-example) below. |
 | `dryRun`<br/>`--dry-run`<br/>`SQLAUTHZ_DRY_RUN` | No | `false` | Print the full SQL query that would be executed instead of executing it. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRunShort` |
 | `dryRunShort`<br/>`--dry-run-short`<br/>`SQLAUTHZ_DRY_RUN_SHORT` | No | `false` | Print an abbreviated SQL query, only containing the `GRANT` queries that will be run, instead of executing anything. Note that if setting this via environment variable, the value must be `true`. This conflicts with `dryRun` |
 | `debug`<br/>`--debug`<br/>`SQLAUTHZ_DEBUG` | No | `false` | Print more detailed error information for debugging compilation failures. Note that if setting this via environment variable, the value must be `true`. |
@@ -290,7 +292,16 @@ These are a limited set of examples on how you can express certain rule sets in 
 
 ### A complete example
 
-This example shows how you can effectively segment your permissions into various virtual "roles" that can easily be assigned to new users and/or groups. This is split up into multiple scripts as an example of how you might want to organize your rules into a few different files.
+This example shows how you can effectively segment your permissions into various virtual "roles" that can easily be assigned to new users and/or groups. This is split up into multiple scripts as an example of how you might want to organize your rules into a few different files. This also showcases how you can use the `varFile` argument to parametrize your rules and separate your configuration from your permissions logic. For this example, you would add the following configuration to your `package.json` (alternatively, specify `--var-file roles.json -r permissions.polar roles.polar` on the command line):
+```json
+{
+    ...
+    "sqlauthz": {
+        "rules": ["permissions.polar", "roles.polar"],
+        "varFile": ["roles.json"]
+    }
+}
+```
 
 `permissions.polar`
 ```polar
@@ -345,25 +356,31 @@ allow(actor, permission, resource)
 ```polar
 # Assign some users as "devs", which will get a certain set of permissions
 isDev(actor)
-    if name in ["bob", "greg", "julie", "marianne"]
+    if name in var.devUsers
     and actor.type == "user"
     and actor == name;
 
-# Assign some users to the QA grouop, which will get a certain set of permissions
+# Assign some users to the QA group, which will get a certain set of permissions
 # This is equivalent to the isDev syntax above except these rules don't check that
 # the actor is a user and not a group (which usually shouldn't be an issue, but it
 # could depend on how your DB is set up. When using `sqlauthz` using postgresql groups
 # shouldn't really be necessary)
-isQA("randy");
-isQA("john");
-isQA("ariel");
+isQA(actor) if actor in var.qaUsers;
 
 # Devs should have all of the QA permissions
 isQA(actor) if isDev(actor);
 
 # Virtual group for DB roles used by apps
-isApp("api_svc");
-isApp("worker_svc");
+isApp(actor) if actor in var.appUsers;
+```
+
+`roles.json`
+```json
+{
+    "devUsers": ["bob", "greg", "julie", "marianne"],
+    "qaUsers": ["randy", "john", "ariel"],
+    "appUsers": ["api_svc", "worker_svc"]
+}
 ```
 
 ### Grant a user or group all permissions on all schemas

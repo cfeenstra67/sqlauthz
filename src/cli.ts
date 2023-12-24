@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { fdir } from "fdir";
+import fs from "node:fs";
+import path from "node:path";
 import pg from "pg";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -7,6 +8,26 @@ import { compileQuery } from "./api.js";
 import { OsoError } from "./oso.js";
 import { PostgresBackend } from "./pg-backend.js";
 import { UserRevokePolicy } from "./sql.js";
+import { PathNotFound, strictGlob } from "./utils.js";
+
+function parseVar(value: string): [string, unknown] {
+  const parts = value.split("=", 2);
+  if (parts.length !== 2) {
+    throw new Error(
+      `Invalid variable value: ${value}. Must use name=value syntax`,
+    );
+  }
+  const key = parts[0]!;
+  let outValue = parts[1]!;
+  try {
+    outValue = JSON.parse(outValue);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
+  }
+  return [key, outValue];
+}
 
 async function main() {
   if (!process.env.NO_DOTENV) {
@@ -67,6 +88,24 @@ async function main() {
         "queries will be allowed",
       default: false,
     })
+    .option("var", {
+      type: "string",
+      array: true,
+      description:
+        "Define variable(s) that can be referenced in your rules files " +
+        "by specifying a value of `varname=varvalue`. The variables " +
+        "will be attempted to be parsed as JSON, otherwise they will " +
+        "be treated as strings. Variables can be access in rules files " +
+        "via `var.<name>`. For more flexibility, also see --var-file",
+    })
+    .option("var-file", {
+      type: "string",
+      array: true,
+      description:
+        "File paths to .js scripts or JSON files that will be loaded, " +
+        "and the exports will be available in your rules files as " +
+        "var.<name>.",
+    })
     .option("dry-run", {
       type: "boolean",
       description:
@@ -99,14 +138,66 @@ async function main() {
     userRevokePolicy = { type: "referenced" };
   }
 
-  const rulesPaths = await new fdir()
-    .glob(...args.rules)
-    .withBasePath()
-    .crawl(".")
-    .withPromise();
+  let rulesPaths: string[];
+  try {
+    rulesPaths = await strictGlob(...args.rules);
+  } catch (error) {
+    if (error instanceof PathNotFound) {
+      console.error("Path not found:", error.path);
+      process.exit(1);
+    }
+    console.error("Unexpected error finding rules files:", error);
+    process.exit(1);
+  }
 
   if (rulesPaths.length === 0) {
     console.error(`No rules files matched glob(s): ${args.rules.join(", ")}`);
+    process.exit(1);
+  }
+
+  const vars: Record<string, unknown> = {};
+  let varFiles: string[];
+  try {
+    varFiles = args.varFile ? await strictGlob(...args.varFile) : [];
+  } catch (error) {
+    if (error instanceof PathNotFound) {
+      console.error("Path not found:", error.path);
+      process.exit(1);
+    }
+    console.error("Unexpected error finding variable files:", error);
+    process.exit(1);
+  }
+
+  for (const varFile of varFiles) {
+    if (varFile.endsWith(".json")) {
+      const content = await fs.promises.readFile(varFile, { encoding: "utf8" });
+      let obj: unknown;
+      try {
+        obj = JSON.parse(content);
+      } catch (_) {
+        console.error(`Unable to parse JSON in ${varFile}`);
+        process.exit(1);
+      }
+      Object.assign(vars, obj);
+    } else if (varFile.endsWith(".js")) {
+      const fullPath = path.resolve(varFile);
+      const mod = await import(fullPath);
+      Object.assign(vars, mod);
+    } else {
+      console.error(
+        `Invalid var file: ${varFile}. Extension must be .js or .json`,
+      );
+      process.exit(1);
+    }
+  }
+
+  try {
+    for (const varString of args.var ?? []) {
+      const [key, value] = parseVar(varString);
+      vars[key] = value;
+    }
+  } catch (error) {
+    console.error("Error parsing variables:", error);
     process.exit(1);
   }
 
@@ -129,6 +220,7 @@ async function main() {
       includeSetupAndTeardown: !args.dryRunShort,
       includeTransaction: !args.dryRunShort,
       debug: args.debug,
+      vars: { var: vars },
     });
     if (query.type !== "success") {
       console.error("Unable to compile permission queries. Errors:");
@@ -139,7 +231,11 @@ async function main() {
     }
 
     if (args.dryRun || args.dryRunShort) {
-      console.log(query.query);
+      if (query.query) {
+        console.log(query.query);
+      } else {
+        console.log("No permissions granted to any users");
+      }
       return;
     }
 
@@ -151,6 +247,7 @@ async function main() {
     } else {
       console.error("Unexpected error:", error);
     }
+    process.exit(1);
   } finally {
     await client.end();
   }

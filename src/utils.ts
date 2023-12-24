@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { fdir } from "fdir";
 import { Variable } from "oso";
 import { Expression } from "oso/dist/src/Expression.js";
 import { Pattern } from "oso/dist/src/Pattern.js";
@@ -141,4 +143,33 @@ export function* arrayProduct<A extends readonly (readonly any[])[]>(
   //   });
   //   yield outItems as ArrayProductItem<A>;
   // }
+}
+
+export async function strictGlob(...globs: string[]): Promise<string[]> {
+  const out = new Set<string>();
+  for (const pattern of globs) {
+    if (pattern.includes("*")) {
+      const result = await new fdir()
+        .glob(pattern)
+        .withBasePath()
+        .crawl(".")
+        .withPromise();
+      for (const item of result) {
+        out.add(item);
+      }
+    } else {
+      if (!fs.existsSync(pattern)) {
+        throw new PathNotFound(pattern);
+      }
+      out.add(pattern);
+    }
+  }
+
+  return Array.from(out);
+}
+
+export class PathNotFound extends Error {
+  constructor(readonly path: string) {
+    super(`File not found: ${path}`);
+  }
 }
