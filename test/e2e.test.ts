@@ -203,6 +203,42 @@ describe("test-basic-7-type-field", async () => {
   });
 });
 
+describe("test-basic-8", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("basic", "basic-8", db, { user1, user2 });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: should not be able to select title or author columns", async () => {
+    await useClient(async (client) => {
+      for (const col of ["author", "title"]) {
+        await assert.rejects(client.query(`SELECT ${col} FROM test.articles`), {
+          message: "permission denied for table articles",
+        });
+      }
+    });
+  });
+
+  await it("user1: should be able to select other columns", async () => {
+    await useClient(async (client) => {
+      for (const col of ["id", "content", "created_at", "updated_at"]) {
+        const result = await client.query(`SELECT ${col} FROM test.articles`);
+        assert.equal(result.rowCount, 12);
+      }
+    });
+  });
+});
+
 describe("test-multi-table-1-full-access", async () => {
   const user1 = userNameGenerator();
   const user2 = userNameGenerator();
@@ -924,6 +960,65 @@ describe("test-complete-1", async () => {
           message: "permission denied for table users",
         },
       );
+    });
+  });
+});
+
+describe("test-cast-1", async () => {
+  const user1 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("cast", "cast-1", db, {
+      user1,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: should not be able to select from app.users without user.org_id set", async () => {
+    await useClient(async (client) => {
+      await assert.rejects(client.query("SELECT * FROM app.users"), {
+        message: 'unrecognized configuration parameter "user.org_id"',
+      });
+    });
+  });
+
+  await it("user1: should be able to select from app.users with user.org_id set", async () => {
+    await useClient(async (client) => {
+      await client.query("SET \"user.org_id\" TO '12'");
+      const result = await client.query("SELECT * FROM app.users");
+      assert.equal(result.rowCount, 1);
+    });
+  });
+});
+
+describe("test-func-condition-1", async () => {
+  const user1 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient = dbClientGenerator(dbUrl(user1, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("func-condition", "func-condition-1", db, {
+      user1,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  await it("user1: should be able to access 1 row", async () => {
+    await useClient(async (client) => {
+      const result = await client.query("SELECT * FROM test.articles");
+      assert.equal(result.rowCount, 1);
     });
   });
 });

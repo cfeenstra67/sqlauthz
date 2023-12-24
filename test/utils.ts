@@ -3,7 +3,6 @@ import path from "node:path";
 import url from "node:url";
 import pg from "pg";
 import { CompileQueryArgs, compileQuery } from "../src/api.js";
-import { SQLEntities } from "../src/backend.js";
 import { CreateOsoArgs } from "../src/oso.js";
 import { PostgresBackend } from "../src/pg-backend.js";
 
@@ -98,7 +97,7 @@ export async function setupEnv(
   const teardowns: [string, () => Promise<void>][] = [];
   const teardownFunc = async () => {
     let errors = 0;
-    for (const [name, func] of teardowns) {
+    for (const [name, func] of teardowns.reverse()) {
       try {
         await func();
       } catch (error) {
@@ -111,7 +110,6 @@ export async function setupEnv(
     }
   };
 
-  let entities: SQLEntities;
   try {
     await client.connect();
     teardowns.push(["Close root client", () => client.end()]);
@@ -133,8 +131,6 @@ export async function setupEnv(
       },
     ]);
     teardowns.push(["Close backend client", () => backendClient.end()]);
-
-    teardowns.reverse();
 
     const backend = new PostgresBackend(backendClient);
     const result = await compileQuery({

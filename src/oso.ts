@@ -2,7 +2,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { Oso, Variable } from "oso";
 import { Predicate } from "oso/dist/src/Predicate.js";
 import { Value, valueToClause } from "./clause.js";
-import { SQLFunction } from "./sql.js";
+import {
+  FunctionPrivileges,
+  ProcedurePrivileges,
+  SQLFunction,
+  SchemaPrivileges,
+  SequencePrivileges,
+  TablePrivileges,
+  ViewPrivileges,
+} from "./sql.js";
 
 export interface LiteralsContext {
   use: <T>(func: () => Promise<T>) => Promise<T>;
@@ -62,7 +70,22 @@ export function registerFunctions(
     return new Variable(varName);
   };
 
+  topLevelFunctions.cast = function cast(arg, type) {
+    return new Predicate("cast", [arg, type]);
+  };
+
   oso.registerConstant(topLevelFunctions, "sql");
+
+  const permissions = {
+    schema: SchemaPrivileges,
+    table: TablePrivileges,
+    view: ViewPrivileges,
+    function: FunctionPrivileges,
+    procedure: ProcedurePrivileges,
+    sequence: SequencePrivileges,
+  };
+
+  oso.registerConstant(permissions, "permissions");
 
   return {
     use: (func) => storage.run(new Map(), func),
@@ -94,7 +117,16 @@ export async function createOso({
     oso.registerConstant(value, key);
   }
 
-  await oso.loadFiles(paths);
+  try {
+    await oso.loadFiles(paths);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new OsoError(error.message);
+    }
+    throw error;
+  }
 
   return { oso, literalsContext };
 }
+
+export class OsoError extends Error {}

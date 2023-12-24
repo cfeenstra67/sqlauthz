@@ -383,7 +383,17 @@ export function valueToClause(value: unknown): Clause {
     return TrueClause;
   }
   if (value instanceof Predicate) {
-    const [schema, name] = value.name.split(".");
+    const parts = value.name.split(".");
+    let schema: string;
+    let name: string;
+    if (parts.length === 1) {
+      schema = "";
+      name = parts[0]!;
+    } else {
+      schema = parts[0]!;
+      name = parts[1]!;
+    }
+
     const clauses: Clause[] = [];
     const args: Value[] = [];
     for (const arg of value.args) {

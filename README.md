@@ -1,7 +1,7 @@
 # sqlauthz - Declarative permissions management for PostgreSQL
 
 > [!WARNING]
-> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's highly recommended that you **inspect the SQL queries** that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
+> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's highly recommended that you **inspect the SQL queries** (using the `--dry-run` or `--dry-run-short` CLi arguments) that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
 
 `sqlauthz` allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
 
@@ -66,7 +66,7 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
 ```bash
 npm install --save-dev sqlauthz
 ```
-You may not want to install it as a development dependency if you plan on using it as a library within your application.
+You may not want to install it as a development dependency if you plan on using it [as a library](#using-sqlauthz-as-a-library) within your application.
 
 ## Compatilibity
 
@@ -94,7 +94,7 @@ The configuration options for `sqlauthz` can be found in the table below. Note t
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
 | `databaseUrl`<br/>`-d`, `--database-url`<br/>`SQLAUTHZ_DATABASE_URL` | Yes | | Database URL to connect to for reading the current schema and executing queries (unless one of the `dryRun` arguments is passed) |
-| `rules`<br/>`-r`, `--rules`<br/>`SQLAUTHZ_RULES` | No | `['sqlauthz.polar']` | Path(s) to `.polar` files containing rules. Note that only a single path is supported when setting this argument via environment variable |
+| `rules`<br/>`-r`, `--rules`<br/>`SQLAUTHZ_RULES` | No | `['sqlauthz.polar']` | Path(s) to `.polar` files containing rules. Globs (e.g. `sqlauthz/*.polar`) are supported. Note that only a single path is supported when setting this argument via environment variable |
 | `revokeReferenced`<br/>`--revoke-referenced`<br/>`SQLAUTHZ_REVOKE_REFERENCED` | No | `true` | Use the `referenced` user revoke strategy. This is the default strategy. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeAll` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
 | `revokeAll`<br/>`--revoke-all`<br/>`SQLAUTHZ_REVOKE_ALL` | No | `false` | Use the `all` user revoke strategy. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeReferenced` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
 | `revokeUsers`<br/>`--revoke-users`<br/>`SQLAUTHZ_REVOKE_USERS` | No | `false` | Use the `users` revoke strategy, revoking permissions from a list of users explicitly. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeReferenced` and `revokeAll`. Note that if setting this via environment variable, only a single value can be passed. |
@@ -123,7 +123,7 @@ _NOTE_: Superuser's permissions cannot be limited using `sqlauthz`, because they
 
 ## Using `sqlauthz` as a library
 
-_NOTE_: This API is not stable, and may change significantly within major version 0. This may change in the future.
+_NOTE_: This API may change within major version 0
 
 If you want to embed `sqlauthz` within your application, you can also use it as a library. To do this, you must do three things:
 - Create an instance of `PostgresBackend`, passing in a `pg.Client` instance.
@@ -154,6 +154,10 @@ if (result.type === 'success') {
 await client.end();
 ```
 The libary is quite simple, so if you need to do something different you can likely read the source code to figure out how to do it. If you have any issues, feel free to [create an issue](https://github.com/cfeenstra67/sqlauthz/issues/new).
+
+See the [`CompileQueryArgs`](https://github.com/cfeenstra67/sqlauthz/blob/main/src/api.ts#L6) type for a full definition of arguments that can be passed to `compileQuery()`. For the most part they are 1-1 with CLI arguments, with a few minor differences:
+- `paths` does not resolve globs
+- `--dry-run-short` is equivalent to compiling the query with `includeTransaction: false` and `includeSetupAndTeardown: false`
 
 ## Writing Rules
 
@@ -248,6 +252,14 @@ allow("bob", "select", table)
         - `<sql_function>` - Built-in SQL functions in Postgres such as `date_trunc`. Only functions from the `pg_catalog` schema can be referenced without schema-qualification.
         - `<schema>.<sql_function>` - Schema-qualified SQL functions; typically these would be user-defined functions that you write.
         - `lit` - Due to limitations in `sqlauthz`, when writing row-level security rules that compare the result of a SQL function with a literal, `lit()` must be used to wrap the literal. There is an example in the [previous section](#using-sql-functions-in-row-level-security-clauses).
+        - `cast` - corresponds to the SQL `CAST(value AS type)` syntax. This can be called with the `value` being a `resource.row.<col>` or the result of a SQL function, and the `type` should be a string literal. E.g. `sql.cast(resource.row.id, "bigint")`
+    - `permissions` - This contains arrays of the available permissions for each object type that can be used in rules if you wish. Available members:
+        - `schema` - `["USAGE", "CREATE"]`
+        - `table` - `["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]`
+        - `view` - `["SELECT", "INSERT", "UPDATE", "DELETE", "TRIGGER"]`
+        - `function` - `["EXECUTE"]`
+        - `procedure` - `["EXECUTE"]`
+        - `sequence` - `["USAGE", "SELECT", "UPDATE"]`
 
 ### Permissions that depend on one another
 
@@ -321,6 +333,10 @@ allow(actor, permission, resource)
     if isApp(actor)
     and permission in ["select", "insert", "update", "delete"]
     and resource == "app.users"
+    # Note: for multiple columns this could either be stated
+    # as `resource.col != "internal_notes" and resource.col != "other"`
+    # or `forall(x in ["internal_notes", "other"], resource.col != x)`
+    # `not resource.col in ["internal_notes", "other"] does NOT work`
     and resource.col != "internal_notes"
     and resource.row.org_id == sql.current_setting("user.org_id");
 ```
@@ -415,6 +431,7 @@ REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
 - Support for using SQL functions in row-level security clauses is imperfect. It works for most cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
     - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
     - When writing a clause that operates on the result of a function call and a literal, you will have to use the `sql.lit` helper to declare the literal. E.g. rather than `sql.date_trunc("hour", table.row.created_at) == "2023-01-01T00:00:00"` you would have to write `sql.date_trunc("hour", table.row.created_at) == sql.lit("2023-01-01T00:00:00")`.
+        - This includes if you use a SQL function that returns a boolean e.g. rather than `if sql.my_func.is_ok(resource.row.id)` you should write `if sql.my_func.is_ok(resource.row.id) == sql.lit(true)`
 
 - When using SQL functions in row-level security clauses, number and type of arguments are unchecked.
 

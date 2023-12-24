@@ -45,8 +45,10 @@
   "license": "MIT",
   "dependencies": {
     "dotenv": "^16.3.1",
+    "fdir": "^6.1.1",
     "oso": "^0.27.0",
     "pg": "^8.11.3",
+    "picomatch": "^3.0.1",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

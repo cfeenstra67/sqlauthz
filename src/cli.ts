@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+import { fdir } from "fdir";
 import pg from "pg";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { compileQuery } from "./api.js";
+import { OsoError } from "./oso.js";
 import { PostgresBackend } from "./pg-backend.js";
 import { UserRevokePolicy } from "./sql.js";
 
@@ -17,7 +19,9 @@ async function main() {
     .option("rules", {
       alias: "r",
       type: "string",
-      description: "Polar rule file(s) defining permissions",
+      description:
+        "Polar rule file(s) defining permissions. " +
+        "Globs (e.g. `sqlauthz/*.polar`) are supported.",
       default: ["sqlauthz.polar"],
       array: true,
       demandOption: true,
@@ -68,7 +72,6 @@ async function main() {
       description:
         "Print full SQL query that would be executed; --dry-run-short only " +
         "includes grants.",
-      default: false,
       conflicts: ["dry-run-short"],
     })
     .option("dry-run-short", {
@@ -96,11 +99,22 @@ async function main() {
     userRevokePolicy = { type: "referenced" };
   }
 
+  const rulesPaths = await new fdir()
+    .glob(...args.rules)
+    .withBasePath()
+    .crawl(".")
+    .withPromise();
+
+  if (rulesPaths.length === 0) {
+    console.error(`No rules files matched glob(s): ${args.rules.join(", ")}`);
+    process.exit(1);
+  }
+
   const client = new pg.Client(args.databaseUrl);
   try {
     await client.connect();
   } catch (error) {
-    console.error(`Could not connect to database: ${error}`);
+    console.error("Could not connect to database:", error);
     process.exit(1);
   }
 
@@ -109,7 +123,7 @@ async function main() {
   try {
     const query = await compileQuery({
       backend,
-      paths: args.rules,
+      paths: rulesPaths,
       userRevokePolicy,
       allowAnyActor: args.allowAnyActor,
       includeSetupAndTeardown: !args.dryRunShort,
@@ -131,6 +145,12 @@ async function main() {
 
     await client.query(query.query);
     console.log("Permissions updated successfully");
+  } catch (error) {
+    if (error instanceof OsoError) {
+      console.error("Error loading rules:", error);
+    } else {
+      console.error("Unexpected error:", error);
+    }
   } finally {
     await client.end();
   }

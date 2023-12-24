@@ -46,6 +46,28 @@ export function printQuery(query: Map<string, unknown>): string {
   return lines.join("\n");
 }
 
+export function valueToSqlLiteral(value: unknown): string {
+  if (typeof value === "string") {
+    return `'${value.replaceAll("'", "''")}'`;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      return "null";
+    }
+    return value.toString();
+  }
+  if (typeof value === "boolean") {
+    return value.toString();
+  }
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  if (value instanceof Date) {
+    return valueToSqlLiteral(value.toISOString());
+  }
+  throw new Error(`Unhandled SQL literal type: ${value}`);
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: generic
 type ArrayProductItem<A extends readonly (readonly any[])[]> =
   A extends readonly []

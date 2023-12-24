@@ -6,6 +6,7 @@ import pg from "pg";
 import { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
 import {
   Clause,
+  Literal,
   ValidationError,
   evaluateClause,
   isTrueClause,
@@ -26,6 +27,7 @@ import {
   TablePermission,
   ViewPermission,
 } from "./sql.js";
+import { valueToSqlLiteral } from "./utils.js";
 
 const ProjectDir = url.fileURLToPath(new URL(".", import.meta.url));
 
@@ -420,15 +422,6 @@ export class PostgresBackend implements SQLBackend {
     return result.type === "success" && result.result;
   }
 
-  private valueToSql(value: unknown): string {
-    if (typeof value === "string") {
-      // TODO: need to do proper quoting here, probably
-      // need to actually use parameters ultimately
-      return `'${value.replaceAll("'", "\\'")}'`;
-    }
-    return JSON.stringify(value);
-  }
-
   private clauseToSql(clause: Clause): string {
     if (clause.type === "and" || clause.type === "or") {
       const subClauses = clause.clauses.map((subClause) =>
@@ -471,16 +464,23 @@ export class PostgresBackend implements SQLBackend {
       return this.quoteIdentifier(clause.value);
     }
     if (clause.type === "function-call") {
-      const name = `${this.quoteIdentifier(
-        clause.schema,
-      )}.${this.quoteIdentifier(clause.name)}`;
-      const args = clause.args.map((arg) => this.clauseToSql(arg));
-      return `${name}(${args.join(", ")})`;
+      if (clause.schema) {
+        const name = `${this.quoteIdentifier(
+          clause.schema,
+        )}.${this.quoteIdentifier(clause.name)}`;
+        const args = clause.args.map((arg) => this.clauseToSql(arg));
+        return `${name}(${args.join(", ")})`;
+      }
+      if (clause.name === "cast") {
+        const arg = this.clauseToSql(clause.args[0]!);
+        return `CAST(${arg} AS ${(clause.args[1] as Literal).value})`;
+      }
+      throw new Error(`Unrecognized function: ${clause.name}`);
     }
     if (typeof clause.value === "string") {
       return `'${clause.value}'`;
     }
-    return this.valueToSql(clause.value);
+    return valueToSqlLiteral(clause.value);
   }
 
   private compileGrantQuery(
