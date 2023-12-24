@@ -347,7 +347,7 @@ allow(actor, permission, resource)
     # Note: for multiple columns this could either be stated
     # as `resource.col != "internal_notes" and resource.col != "other"`
     # or `forall(x in ["internal_notes", "other"], resource.col != x)`
-    # `not resource.col in ["internal_notes", "other"] does NOT work`
+    # `not resource.col in ["internal_notes", "other"]` does NOT work
     and resource.col != "internal_notes"
     and resource.row.org_id == sql.current_setting("user.org_id");
 ```
