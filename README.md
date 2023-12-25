@@ -250,18 +250,18 @@ allow("bob", "select", table)
 ### Available constants
 
 `sqlauthz` exposes some constants that you can use in your polar rules. Available constants:
-    - `sql` - This contains utilities that you can use for writing row-level security rules with SQL functions. For examples see [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses). Available members:
-        - `<sql_function>` - Built-in SQL functions in Postgres such as `date_trunc`. Only functions from the `pg_catalog` schema can be referenced without schema-qualification.
-        - `<schema>.<sql_function>` - Schema-qualified SQL functions; typically these would be user-defined functions that you write.
-        - `lit` - Due to limitations in `sqlauthz`, when writing row-level security rules that compare the result of a SQL function with a literal, `lit()` must be used to wrap the literal. There is an example in the [previous section](#using-sql-functions-in-row-level-security-clauses).
-        - `cast` - corresponds to the SQL `CAST(value AS type)` syntax. This can be called with the `value` being a `resource.row.<col>` or the result of a SQL function, and the `type` should be a string literal. E.g. `sql.cast(resource.row.id, "bigint")`
-    - `permissions` - This contains arrays of the available permissions for each object type that can be used in rules if you wish. Available members:
-        - `schema` - `["USAGE", "CREATE"]`
-        - `table` - `["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]`
-        - `view` - `["SELECT", "INSERT", "UPDATE", "DELETE", "TRIGGER"]`
-        - `function` - `["EXECUTE"]`
-        - `procedure` - `["EXECUTE"]`
-        - `sequence` - `["USAGE", "SELECT", "UPDATE"]`
+- `sql` - This contains utilities that you can use for writing row-level security rules with SQL functions. For examples see [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses). Available members:
+    - `<sql_function>` - Built-in SQL functions in Postgres such as `date_trunc`. Only functions from the `pg_catalog` schema can be referenced without schema-qualification.
+    - `<schema>.<sql_function>` - Schema-qualified SQL functions; typically these would be user-defined functions that you write.
+    - `lit` - Due to limitations in `sqlauthz`, when writing row-level security rules that compare the result of a SQL function with a literal, `lit()` must be used to wrap the literal. There is an example in the [previous section](#using-sql-functions-in-row-level-security-clauses).
+    - `cast` - corresponds to the SQL `CAST(value AS type)` syntax. This can be called with the `value` being a `resource.row.<col>` or the result of a SQL function, and the `type` should be a string literal. E.g. `sql.cast(resource.row.id, "bigint")`
+- `permissions` - This contains arrays of the available permissions for each object type that can be used in rules if you wish. Available members:
+    - `schema` - `["USAGE", "CREATE"]`
+    - `table` - `["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]`
+    - `view` - `["SELECT", "INSERT", "UPDATE", "DELETE", "TRIGGER"]`
+    - `function` - `["EXECUTE"]`
+    - `procedure` - `["EXECUTE"]`
+    - `sequence` - `["USAGE", "SELECT", "UPDATE"]`
 
 ### Permissions that depend on one another
 
