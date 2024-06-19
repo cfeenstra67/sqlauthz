@@ -50,7 +50,10 @@ async function main() {
     .option("database-url", {
       alias: "d",
       type: "string",
-      description: "Database URL to connect to",
+      description:
+        "Database URL to connect to. Note that you can " +
+        "specify a value with the format with env:<name> to " +
+        "read this from a specified environment variable.",
       demandOption: true,
     })
     .option("revoke-referenced", {
@@ -201,11 +204,27 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new pg.Client(args.databaseUrl);
+  const envVariablePrefix = "env:";
+  let databaseUrl: string;
+  if (args.databaseUrl.startsWith(envVariablePrefix)) {
+    const envVariableName = args.databaseUrl.slice(envVariablePrefix.length);
+    const envVariable = process.env[envVariableName];
+    if (!envVariable) {
+      console.error(
+        `Invalid environment variable specified for databaseUrl: ${envVariableName}`,
+      );
+      process.exit(1);
+    }
+    databaseUrl = envVariable;
+  } else {
+    databaseUrl = args.databaseUrl;
+  }
+
+  const client = new pg.Client(databaseUrl);
   try {
     await client.connect();
   } catch (error) {
-    console.error("Could not connect to database:", error);
+    console.error(`Could not connect to database at '${databaseUrl}':`, error);
     process.exit(1);
   }
 

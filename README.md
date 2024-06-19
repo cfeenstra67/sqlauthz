@@ -93,11 +93,11 @@ The configuration options for `sqlauthz` can be found in the table below. Note t
 
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
-| `databaseUrl`<br/>`-d`, `--database-url`<br/>`SQLAUTHZ_DATABASE_URL` | Yes | | Database URL to connect to for reading the current schema and executing queries (unless one of the `dryRun` arguments is passed) |
+| `databaseUrl`<br/>`-d`, `--database-url`<br/>`SQLAUTHZ_DATABASE_URL` | Yes | | Database URL to connect to for reading the current database object and executing queries (if one of the `dryRun` arguments is passed, it will only be used for reading the current database objects). Note that you can pass this in the form `env:<name>`, which will read the value from a specified environment variable, for example `env:MY_DATABASE_URL` will read the value from the `MY_DATABASE_URL` environment variable. |
 | `rules`<br/>`-r`, `--rules`<br/>`SQLAUTHZ_RULES` | No | `['sqlauthz.polar']` | Path(s) to `.polar` files containing rules. Globs (e.g. `sqlauthz/*.polar`) are supported. Note that only a single path is supported when setting this argument via environment variable |
-| `revokeReferenced`<br/>`--revoke-referenced`<br/>`SQLAUTHZ_REVOKE_REFERENCED` | No | `true` | Use the `referenced` user revoke strategy. This is the default strategy. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeAll` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
-| `revokeAll`<br/>`--revoke-all`<br/>`SQLAUTHZ_REVOKE_ALL` | No | `false` | Use the `all` user revoke strategy. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeReferenced` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
-| `revokeUsers`<br/>`--revoke-users`<br/>`SQLAUTHZ_REVOKE_USERS` | No | `false` | Use the `users` revoke strategy, revoking permissions from a list of users explicitly. See [User revoke policy](#user-revoke-policy) for details. Conflicts with `revokeReferenced` and `revokeAll`. Note that if setting this via environment variable, only a single value can be passed. |
+| `revokeReferenced`<br/>`--revoke-referenced`<br/>`SQLAUTHZ_REVOKE_REFERENCED` | No | `true` | Use the `referenced` user revoke strategy. This is the default strategy. See [User revoke strategies](#user-revoke-strategies) for details. Conflicts with `revokeAll` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
+| `revokeAll`<br/>`--revoke-all`<br/>`SQLAUTHZ_REVOKE_ALL` | No | `false` | Use the `all` user revoke strategy. See [User revoke strategies](#user-revoke-strategies) for details. Conflicts with `revokeReferenced` and `revokeUsers`. Note that if setting this via environment variable, the value must be `true`. |
+| `revokeUsers`<br/>`--revoke-users`<br/>`SQLAUTHZ_REVOKE_USERS` | No | `false` | Use the `users` revoke strategy, revoking permissions from a list of users explicitly. See [User revoke strategies](#user-revoke-strategies) for details. Conflicts with `revokeReferenced` and `revokeAll`. Note that if setting this via environment variable, only a single value can be passed. |
 | `allowAnyActor`<br/>`--allow-any-actor`<br/>`SQLAUTHZ_ALLOW_ANY_ACTOR` | No | `false` | Allow rules that do not put any limitations on the `actor`, so they apply to all users. This is potentially dangerous, particularly when used with `revokeReferenced` (the default), so it is disabled by default. This argument allows these rules (but make sure that you know what you're doing!). |
 | `var`<br/>`--var`<br/>`SQLAUTHZ_VAR` | No | <none> | Inject variables into scope that can be utilized by your rules files. The syntax for variables injected via command line is `<name>=<value>`. The CLI will attempt to parse `<value>` a JSON string, and if that fails it will just be interpreted as a string. Within your rules files, variables can be access with `var.<name>`. This can be used to parametrize your rules files, and separate your configuration from your permissions logic. Also see `--var-file` for more flexibility. |
 | `varFile`<br/>`--var-file`<br/>`SQLAUTHZ_VAR_FILE` | No | <none> | Specify script(s) or JSON file(s) that will be loaded, and their exports will be used to inject variables into your rules files. Glob paths are supported e.g. `*.js`. The file(s) must have `.js` or `.json` extensions. Within your rules files, variables can be access with `var.<name>`. `--var` will take priority over variables loaded from file(s) loaded with this argument. This can be used to separate your permissions logic from your configuration. For an example, see the [complete example](#a-complete-example) below. |
@@ -122,6 +122,11 @@ It's possible that you may not want to control the permissions of all of your us
 - `users` - Define a specific list of users whose permissions should be revoked before granting permissions. This is a balance between the `referenced` and `all` strategies if you have a specific set of users who you'd like to manage the permissions for using `sqlauthz`.
 
 _NOTE_: Superuser's permissions cannot be limited using `sqlauthz`, because they cannot be limited by PostgreSQL permissions in general. They are ignored by `sqlauthz` entirely, and will never have permissions granted to or revoked from them.
+
+_NOTE_: To avoid unintended behavior, `sqlauthz` is relatively strict about referencing actors. Specifically:
+- Referencing a user or group explicitly in rules that does not exist will cause an error.
+- Including a user that doesn't exist in a `user` user revoke strategy will cause an error.
+- Attempting to grant permissions to a user outside the scope of the user revoke strategy will cause an error.
 
 ## Using `sqlauthz` as a library
 
@@ -445,12 +450,12 @@ REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
 
 - Does not support setting permissions on built-in functions or procedures (defined as functions in the `pg_catalog` schema)
 
-- Support for using SQL functions in row-level security clauses is imperfect. It works for most cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
+- Support for using SQL functions in row-level security clauses is imperfect. It works for simple cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
     - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
     - When writing a clause that operates on the result of a function call and a literal, you will have to use the `sql.lit` helper to declare the literal. E.g. rather than `sql.date_trunc("hour", table.row.created_at) == "2023-01-01T00:00:00"` you would have to write `sql.date_trunc("hour", table.row.created_at) == sql.lit("2023-01-01T00:00:00")`.
         - This includes if you use a SQL function that returns a boolean e.g. rather than `if sql.my_func.is_ok(resource.row.id)` you should write `if sql.my_func.is_ok(resource.row.id) == sql.lit(true)`
 
-- When using SQL functions in row-level security clauses, number and type of arguments are unchecked.
+- When using SQL functions in row-level security clauses, number and type of arguments are unchecked. This means that if you pass an invalid number or type of arguments to a SQL function, the operation will only fail when the actual SQL to set the permissions is executed. Whether a particular function exists, however, is checked, and will emit an error if a function that doesn't exist is referenced.
 
 - Currently there is no way to use joins or select from other tables in row-level security queries.
 
@@ -458,4 +463,4 @@ REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
 
 ## Support and Feature Requests
 
-If you encounter a bug with `sqlauthz`, want to request support for another SQL backend, or would like to see more features added to `sqlauthz`, please [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and I'll try to help you out as quickly as possible.
+If you encounter a bug with `sqlauthz`, want to request support for another SQL backend, or would like to see more features added to `sqlauthz`, please [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and I'll try to help you out.
