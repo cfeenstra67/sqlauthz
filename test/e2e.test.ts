@@ -1147,3 +1147,58 @@ describe("actor strictness", async () => {
     );
   });
 });
+
+describe("privilege strictness", async () => {
+  await it("should fail when referencing an invalid privilege", async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const errors = ["Invalid privilege name: 'does_not_exist'"];
+
+    await assert.rejects(
+      setupEnv("basic", "basic-invalid-privilege-1", db, {
+        user1,
+        user2,
+      }),
+      {
+        message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+      },
+    );
+  });
+});
+
+describe("object type strictness", async () => {
+  await it("basic-invalid-object-type-1: should fail when referencing an invalid object type", async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const errors = ["Invalid object type: 'does_not_exist'"];
+
+    await assert.rejects(
+      setupEnv("basic", "basic-invalid-object-type-1", db, {
+        user1,
+        user2,
+      }),
+      {
+        message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+      },
+    );
+  });
+
+  await it("basic-invalid-object-type-2: should fail when referencing an invalid object type", async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const errors = ["Invalid object type: '1'"];
+
+    await assert.rejects(
+      setupEnv("basic", "basic-invalid-object-type-2", db, {
+        user1,
+        user2,
+      }),
+      {
+        message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+      },
+    );
+  });
+});

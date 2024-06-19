@@ -56,6 +56,11 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
     - [Grant a group of users all permissions on a schema](#grant-a-group-of-users-all-permissions-on-a-schema)
     - [Grant a user read-only access on a schema](#grant-a-user-read-only-access-on-a-schema)
     - [Grant a user read permissions on a limited set of rows and columns in a table](#grant-a-user-read-permissions-on-a-limited-set-of-rows-and-columns-in-a-table)
+- [Integrating into a production application](#integrating-into-a-production-application)
+    - [Integrating into CI/CD](#integrating-into-cicd)
+    - [Integrating into tests](#integrating-into-tests)
+- [Usage with VSCode](#usage-with-vscode)
+- [Oso Library Deprecation](#oso-library-deprecation)
 - [Motivation](#motivation)
 - [Limitations](#limitations)
 - [Support and Feature Requests](#support-and-feature-requests)
@@ -65,6 +70,8 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
 `sqlauthz` is distributed as an `npm` package, so you can install it via your favorite package manager:
 ```bash
 npm install --save-dev sqlauthz
+# or, if using pnpm
+pnpm add -D sqlauthz
 ```
 You may not want to install it as a development dependency if you plan on using it [as a library](#using-sqlauthz-as-a-library) within your application.
 
@@ -85,6 +92,8 @@ In order to invoke the `sqlauthz` CLI, just invoke the `sqlauthz` command:
 npm run sqlauthz
 # or
 npx sqlauthz
+# or, if using pnpm
+pnpm sqlauthz
 ```
 
 ### CLI Configuration
@@ -423,6 +432,100 @@ allow("bob", "select", resource)
     and (resource.row.mycol == "abc" or resource.row.mycol2 < 12)
     and resource.row.col in ["mycol", "mycol3"];
 ```
+
+## Integrating into a production application
+
+If you're considering integrating `sqlauthz` into a production application, there probably at least two important things you'll want to consider:
+
+- How to integrate `sqlauthz` into your CI/CD pipeline
+- How to integrate `sqlauthz` into your tests
+
+This section goes through some recommendations for how to do each of these things. These recommendations are based on my experience integrating `sqlauthz` into a couple of production applications that I've worked on.
+
+### Integrating into CI/CD
+
+It's highly recommended if you use `sqlauthz` in production to automate applying permissions so that they keep in sync with your database schema.
+
+The best time to do this is right after you've applied your database migrations, whether that be in a CI/CD process, before your application starts up (read on for more specific recommendations related to this approach), or otherwise.
+
+You want to apply `sqlauthz` _after_ your database migrations have run because `sqlauthz` will only create permissions for database objects that exist at the time it runs. If you apply `sqlauthz` _before_ running your database migrations, you will find that roles are missing permissions for newly-created database objects until it's run again.
+
+In order to run `sqlauthz` you will have to use a role that has a very high level of permissions, often a superuser role. For this reason, if you are using a database role whose permissions are provisioned by `sqlauthz` in your application, it's ideal to not have those elevated credentials available to your application at all (the same applies to running database migrations in general).
+
+For this reason, it's recommended to apply both your migrations and your permissions via `sqlauthz` in a separate process from your actual application, whether that be in a CI/CD container or some kind of initialization container that runs before your application starts up. Many container orchestration systems like [AWS ECS](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDependency.html) and [Kubernetes](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/) have a first-class way to implement this. This is as opposed to simply running `sqlauthz` right before the command that actually starts your application. There are other good reasons why this is a good idea as well, such as the ability to set stricter health checks on your application.
+
+_NOTE_: `sqlauthz` runs all of its `REVOKE` and `GRANT` queries for a single run in a single transaction, so it's all or nothing--either all permissions will be updated appropriately according to your desired configuration, or no changes will be made if there's a failure.
+
+### Integrating into tests
+
+A good way to avoid any unexpected issues when deploying your application is by using a database role in your tests that mimics the permissions of the role(s) that you have in your production application. This will ensure that if you forget to provision permissions to something that your application requires, you should see test failures rather than errors in your production or staging environment.
+
+A good approach for doing this is to provision the same roles in your local database that you do in your production or staging database. An easy way to do this without needing to build your own `postgres` image or do anything hacky is to make use of the `/docker-entrypoint-initdb.d` directory, which can contain scripts that will be automatically run when the database container starts.
+
+For example, if you have a postgres container in a `docker-compose.yaml` file like this:
+```yaml
+version: '3'
+services:
+  database:
+    image: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=testdb
+    ports:
+      - '5432:5432'
+```
+Create a directory to store your init script:
+```bash
+mkdir local_postgres_init
+```
+And then create a SQL script like the following at `local_postgres_init/create_default_users.sql`:
+```sql
+CREATE USER app PASSWORD 'password';
+```
+Finally, add it to your `postgres` container by adding the following to your `docker-compose.yaml`:
+```yaml
+version: '3'
+services:
+  database:
+    image: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=testdb
+    ports:
+      - '5432:5432'
+    volumes:
+      - ./local_postgres_init:/docker-entrypoint-initdb.d
+```
+Now when you run `docker compose up -d`, the `app` role will be created automatically. You can test this by running:
+```bash
+psql -h localhost -p 5432 -U app --password testdb
+```
+And entering `password` when prompted for a password.
+
+Now all you have to do is:
+- Set your database URL to `postgres://app:password@localhost:5432/testdb` (specifics, particularly the protocol, will depend on what postgres client library you are using. The above will work for the node `pg` library) when running your tests
+- Make sure to run `sqlauthz` after running your migrations in your test database.
+
+And you will be using a role whose permissions match your production database roles'.
+
+## Usage with VSCode
+
+You can use the [Oso VSCode plugin](https://marketplace.visualstudio.com/items?itemName=osohq.oso) to get syntax highlighting and LSP support for your `.polar` files. However, you should add this setting to your `.vscode/settings.json` to avoid syntax errors:
+```json
+{
+    "oso.polarLanguageServer.validations": "library"
+}
+```
+
+For more details, see [Oso Library Deprecation](#oso-library-deprecation).
+
+## Oso Library Deprecation
+
+In its current state, `sqlauthz` depends heavily on the `oso` library. In December 2023 Oso [marked this library for deprecation](https://www.osohq.com/docs/oss/getting-started/deprecation.html) in favor of their cloud service, though they have indicated that they will continue to support the library version until they can replace it with something that makes use of the newer codebase that they built for their Oso Cloud product. Their new codebase uses slightly different Polar syntax, and specifically it does not allow certain things that were supported by the library. See [Usage with VSCode](#usage-with-vscode) for instructions on how to instruct the VSCode plugin to use the polar syntax supported by the library version.
+
+_NOTE_: For `sqlauthz`, Oso Cloud is not a useful abstraction and unless something fundamentally changes there are no plans to ever have `sqlauthz` depend on Oso cloud. If and when they come out with a replacement for the existing library version of `oso`, I may consider using that if it makes sense. The `oso` library does _not_ depend on Oso cloud and its only npm dependency is on `lodash.isequal`, so other than a deprecation warning continuing to use the `oso` library despite its deprecation should be relatively safe.
 
 ## Motivation
 

@@ -118,6 +118,7 @@ function validateActorClause(
       if (
         columnValue &&
         valueValue &&
+        clause.operator === "Eq" &&
         (columnValue.value === "_this" || columnValue.value === "_this.name")
       ) {
         return validateTopLevel(valueValue);
@@ -145,6 +146,111 @@ function validateActorClause(
     }
 
     return null;
+  };
+
+  return validateTopLevel(clause);
+}
+
+function validateResourceClause(clause: Clause): ConvertPermissionError | null {
+  const resourceTypes = new Set(Object.keys(handlers));
+
+  const validateTopLevel = (clause: Clause): ConvertPermissionError | null => {
+    if (clause.type === "value") {
+      return null;
+    }
+
+    if (clause.type === "expression") {
+      const columnValue = clause.values.filter(isColumn).at(0);
+      const valueValue = clause.values.filter(isValue).at(0);
+      if (
+        columnValue &&
+        valueValue &&
+        clause.operator === "Eq" &&
+        columnValue.value === "_this.type" &&
+        valueValue.type === "value"
+      ) {
+        if (typeof valueValue.value !== "string") {
+          return {
+            type: "error",
+            errors: [`Invalid object type: '${valueValue.value}'`],
+          };
+        }
+
+        const lowerValue = valueValue.value.toLowerCase();
+        if (!resourceTypes.has(lowerValue)) {
+          return {
+            type: "error",
+            errors: [`Invalid object type: '${valueValue.value}'`],
+          };
+        }
+
+        return null;
+      }
+
+      return null;
+    }
+
+    if (clause.type === "and" || clause.type === "or") {
+      const results = clause.clauses.map(validateTopLevel);
+      const errors: string[] = [];
+
+      for (const result of results) {
+        if (result === null) {
+          continue;
+        }
+        errors.push(...result.errors);
+      }
+
+      return errors.length > 0 ? { type: "error", errors } : null;
+    }
+
+    if (clause.type === "not") {
+      return validateTopLevel(clause.clause);
+    }
+
+    return null;
+  };
+
+  return validateTopLevel(clause);
+}
+
+function getReferencedPrivileges(clause: Clause): unknown[] {
+  const validateTopLevel = (clause: Clause): unknown[] => {
+    if (clause.type === "value") {
+      return [clause.value];
+    }
+
+    if (clause.type === "expression") {
+      const columnValue = clause.values.filter(isColumn).at(0);
+      const valueValue = clause.values.filter(isValue).at(0);
+      if (
+        columnValue &&
+        valueValue &&
+        clause.operator === "Eq" &&
+        columnValue.value === "_this"
+      ) {
+        return validateTopLevel(valueValue);
+      }
+
+      return [];
+    }
+
+    if (clause.type === "and" || clause.type === "or") {
+      const results = clause.clauses.map(validateTopLevel);
+      const privileges: unknown[] = [];
+
+      for (const result of results) {
+        privileges.push(...result);
+      }
+
+      return privileges;
+    }
+
+    if (clause.type === "not") {
+      return validateTopLevel(clause.clause);
+    }
+
+    return [];
   };
 
   return validateTopLevel(clause);
@@ -1043,6 +1149,13 @@ export function convertPermission({
     }
   }
 
+  for (const resourceOr of resourceOrs) {
+    const result = validateResourceClause(resourceOr);
+    if (result !== null) {
+      errors.push(...result.errors);
+    }
+  }
+
   for (const [actorOr, actionOr, resourceOr] of arrayProduct([
     actorOrs,
     actionOrs,
@@ -1073,6 +1186,7 @@ export function convertPermission({
       continue;
     }
 
+    const allPrivileges = new Set<Privilege>();
     for (const handler of Object.values(handlers)) {
       const privileges: Privilege[] = [];
       for (const privilege of handler.privileges) {
@@ -1085,6 +1199,7 @@ export function convertPermission({
           errors.push(...result.errors);
         } else if (result.result) {
           privileges.push(privilege);
+          allPrivileges.add(privilege);
         }
       }
 
@@ -1102,6 +1217,13 @@ export function convertPermission({
         permissions.push(...result.permissions);
       } else {
         errors.push(...result.errors);
+      }
+    }
+
+    if (allPrivileges.size === 0) {
+      const referenced = getReferencedPrivileges(actionOr);
+      for (const ref of referenced) {
+        errors.push(`Invalid privilege name: '${ref}'`);
       }
     }
   }

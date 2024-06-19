@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## Changed
+### Added
+
+- Updated README to include recommendations for integrating into a production application.
+
+### Changed
 
 - Made actor handling more strict. Now referencing a user/group that doesn't exist explicitly in rules will cause an error, including a user that doesn't exist in a user revoke policy (`revokeUsers`) will cause an error, and attempting to grant permissions to a user outside the scope of the user revoke policy will cause an error.
 
 - Exclude default postgres groups (identified by those starting with `pg_` when granting permissions)
+
+- Made privilege/action handling more strict. Now referencing a privilege that does not exist for any type of object will cause an error.
+
+- Made resource type handling more strict. Now referencing an invalid object type e.g. `resource.type == "table2"` will cause an error.
 
 ## [0.7.0] - 2023-12-24
 
