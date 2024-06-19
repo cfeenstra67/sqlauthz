@@ -168,28 +168,10 @@ export function formatQualifiedName(schema: string, name: string): string {
   return `${schema}.${name}`;
 }
 
-export interface UserRevokePolicyAll {
-  type: "all";
-}
-
-export interface UserRevokePolicyReferenced {
-  type: "referenced";
-}
-
-export interface UserRevokePolicyExplicit {
-  type: "users";
-  users: string[];
-}
-
-export type UserRevokePolicy =
-  | UserRevokePolicyAll
-  | UserRevokePolicyReferenced
-  | UserRevokePolicyExplicit;
-
 export interface ConstructFullQueryArgs {
   context: SQLBackendContext;
   entities: SQLEntities;
-  userRevokePolicy?: UserRevokePolicy;
+  revokeUsers: SQLActor[];
   permissions: Permission[];
   includeSetupAndTeardown?: boolean;
   includeTransaction?: boolean;
@@ -198,7 +180,7 @@ export interface ConstructFullQueryArgs {
 export function constructFullQuery({
   entities,
   context,
-  userRevokePolicy,
+  revokeUsers,
   permissions,
   includeSetupAndTeardown,
   includeTransaction,
@@ -221,29 +203,8 @@ export function constructFullQuery({
   }
 
   if (includeSetupAndTeardown) {
-    const revokePolicy = userRevokePolicy ?? { type: "referenced" };
-    let usersToRevoke: string[];
-    switch (revokePolicy.type) {
-      case "all":
-        usersToRevoke = entities.users.map((user) => user.name);
-        break;
-      case "users": {
-        const allUsernames = new Set(entities.users.map((user) => user.name));
-        usersToRevoke = revokePolicy.users.filter((username) =>
-          allUsernames.has(username),
-        );
-        break;
-      }
-      case "referenced": {
-        const referencedUsers = new Set(
-          permissions.map((permission) => permission.user.name),
-        );
-        usersToRevoke = Array.from(referencedUsers);
-      }
-    }
-
-    const removeQueries = context.removeAllPermissionsFromUsersQueries(
-      usersToRevoke.map((name) => ({ type: "user", name })),
+    const removeQueries = context.removeAllPermissionsFromActorsQueries(
+      revokeUsers,
       entities,
     );
 

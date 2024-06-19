@@ -74,6 +74,14 @@ export function isFalseClause(
   return clause.type === "or" && clause.clauses.length === 0;
 }
 
+export function isColumn(clause: Clause): clause is Column {
+  return clause.type === "column";
+}
+
+export function isValue(clause: Clause): clause is Value {
+  return clause.type === "value";
+}
+
 export function mapClauses(
   clause: Clause,
   func: (clause: Clause) => Clause,

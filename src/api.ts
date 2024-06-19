@@ -1,7 +1,12 @@
 import { SQLBackend, SQLEntities } from "./backend.js";
 import { CreateOsoArgs, createOso } from "./oso.js";
-import { deduplicatePermissions, parsePermissions } from "./parser.js";
-import { UserRevokePolicy, constructFullQuery } from "./sql.js";
+import {
+  UserRevokePolicy,
+  deduplicatePermissions,
+  getRevokeActors,
+  parsePermissions,
+} from "./parser.js";
+import { constructFullQuery } from "./sql.js";
 
 export interface CompileQueryArgs extends Omit<CreateOsoArgs, "functions"> {
   backend: SQLBackend;
@@ -61,15 +66,25 @@ export async function compileQuery({
     return result;
   }
 
-  const context = await backend.getContext(entities);
-
   const permissions = deduplicatePermissions(result.permissions);
+
+  const actorsToRevoke = getRevokeActors({
+    userRevokePolicy,
+    permissions,
+    entities,
+  });
+
+  if (actorsToRevoke.type !== "success") {
+    return actorsToRevoke;
+  }
+
+  const context = await backend.getContext(entities);
 
   const fullQuery = constructFullQuery({
     entities,
     context,
     permissions,
-    userRevokePolicy,
+    revokeUsers: actorsToRevoke.users,
     includeSetupAndTeardown,
     includeTransaction,
   });

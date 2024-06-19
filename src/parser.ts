@@ -8,7 +8,9 @@ import {
   Value,
   evaluateClause,
   factorOrClauses,
+  isColumn,
   isTrueClause,
+  isValue,
   mapClauses,
   optimizeClause,
   simpleEvaluator,
@@ -93,6 +95,59 @@ function actorEvaluator({
       );
     },
   });
+}
+
+function validateActorClause(
+  clause: Clause,
+  actorNames: Set<string>,
+): ConvertPermissionError | null {
+  const validateTopLevel = (clause: Clause): ConvertPermissionError | null => {
+    if (clause.type === "value") {
+      if (typeof clause.value !== "string" || !actorNames.has(clause.value)) {
+        return {
+          type: "error",
+          errors: [`Invalid user or group name: ${clause.value}`],
+        };
+      }
+      return null;
+    }
+
+    if (clause.type === "expression") {
+      const columnValue = clause.values.filter(isColumn).at(0);
+      const valueValue = clause.values.filter(isValue).at(0);
+      if (
+        columnValue &&
+        valueValue &&
+        (columnValue.value === "_this" || columnValue.value === "_this.name")
+      ) {
+        return validateTopLevel(valueValue);
+      }
+
+      return null;
+    }
+
+    if (clause.type === "and" || clause.type === "or") {
+      const results = clause.clauses.map(validateTopLevel);
+      const errors: string[] = [];
+
+      for (const result of results) {
+        if (result === null) {
+          continue;
+        }
+        errors.push(...result.errors);
+      }
+
+      return errors.length > 0 ? { type: "error", errors } : null;
+    }
+
+    if (clause.type === "not") {
+      return validateTopLevel(clause.clause);
+    }
+
+    return null;
+  };
+
+  return validateTopLevel(clause);
 }
 
 type TableEvaluatorMatch = {
@@ -978,6 +1033,16 @@ export function convertPermission({
   const errors: string[] = [];
   const permissions: Permission[] = [];
 
+  const allActors = (entities.users as SQLActor[]).concat(entities.groups);
+  const actorNames = new Set(allActors.map((actor) => actor.name));
+
+  for (const actorOr of actorOrs) {
+    const result = validateActorClause(actorOr, actorNames);
+    if (result !== null) {
+      errors.push(...result.errors);
+    }
+  }
+
   for (const [actorOr, actionOr, resourceOr] of arrayProduct([
     actorOrs,
     actionOrs,
@@ -991,7 +1056,6 @@ export function convertPermission({
     }
 
     const users: SQLActor[] = [];
-    const allActors = (entities.users as SQLActor[]).concat(entities.groups);
     for (const actor of allActors) {
       const result = evaluateClause({
         clause: actorOr,
@@ -1139,4 +1203,114 @@ export function deduplicatePermissions(
   }
 
   return outPermissions;
+}
+
+export interface UserRevokePolicyAll {
+  type: "all";
+}
+
+export interface UserRevokePolicyReferenced {
+  type: "referenced";
+}
+
+export interface UserRevokePolicyExplicit {
+  type: "users";
+  users: string[];
+}
+
+export type UserRevokePolicy =
+  | UserRevokePolicyAll
+  | UserRevokePolicyReferenced
+  | UserRevokePolicyExplicit;
+
+export interface GetRevokeActorsArgs {
+  userRevokePolicy?: UserRevokePolicy;
+  permissions: Permission[];
+  entities: SQLEntities;
+}
+
+export interface GetRevokeActorsSuccessResult {
+  type: "success";
+  users: SQLActor[];
+}
+
+export interface GetRevokeActorsErrorResult {
+  type: "error";
+  errors: string[];
+}
+
+export type GetRevokeActorsResult =
+  | GetRevokeActorsSuccessResult
+  | GetRevokeActorsErrorResult;
+
+function deduplicateArray<T>(array: T[], key: (item: T) => string): T[] {
+  const itemsByKey = Object.fromEntries(array.map((item) => [key(item), item]));
+  return Object.values(itemsByKey);
+}
+
+export function getRevokeActors({
+  userRevokePolicy,
+  permissions,
+  entities,
+}: GetRevokeActorsArgs): GetRevokeActorsResult {
+  const revokePolicy = userRevokePolicy ?? { type: "referenced" };
+  const referencedActors = deduplicateArray(
+    permissions.map((permission) => permission.user),
+    (actor) => actor.name,
+  );
+
+  const allActors = deduplicateArray(
+    (entities.users as SQLActor[]).concat(entities.groups),
+    (actor) => actor.name,
+  );
+  const actorsByName = Object.fromEntries(
+    allActors.map((actor) => [actor.name, actor]),
+  );
+
+  let usersToRevoke: SQLActor[];
+  const errors: string[] = [];
+  switch (revokePolicy.type) {
+    case "all":
+      usersToRevoke = allActors;
+      break;
+    case "users": {
+      usersToRevoke = [];
+      for (const user of revokePolicy.users) {
+        const actor = actorsByName[user];
+        if (!actor) {
+          errors.push(`Invalid user or group in user revoke policy: ${user}`);
+          continue;
+        }
+        usersToRevoke.push(actor);
+      }
+      break;
+    }
+    case "referenced": {
+      usersToRevoke = referencedActors;
+    }
+  }
+
+  const usersToRevokeByName = Object.fromEntries(
+    usersToRevoke.map((user) => [user.name, user]),
+  );
+  const notFoundUsers = new Set<string>();
+
+  for (const permission of permissions) {
+    if (!usersToRevokeByName[permission.user.name]) {
+      if (notFoundUsers.has(permission.user.name)) {
+        continue;
+      }
+      notFoundUsers.add(permission.user.name);
+      errors.push(
+        `Permission granted to ${permission.user.type} outside of ` +
+          `revoke policy: ${permission.user.name}`,
+      );
+    }
+  }
+
+  if (errors.length > 0) {
+    return { type: "error", errors };
+  }
+
+  return { type: "success", users: usersToRevoke };
 }

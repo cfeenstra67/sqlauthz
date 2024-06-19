@@ -6,8 +6,8 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { compileQuery } from "./api.js";
 import { OsoError } from "./oso.js";
+import { UserRevokePolicy } from "./parser.js";
 import { PostgresBackend } from "./pg-backend.js";
-import { UserRevokePolicy } from "./sql.js";
 import { PathNotFound, strictGlob } from "./utils.js";
 
 function parseVar(value: string): [string, unknown] {

@@ -1,5 +1,6 @@
 import {
   Permission,
+  SQLActor,
   SQLFunction,
   SQLGroup,
   SQLProcedure,
@@ -28,8 +29,8 @@ export interface SQLBackendContext {
   teardownQuery?: string;
   transactionStartQuery?: string;
   transactionCommitQuery?: string;
-  removeAllPermissionsFromUsersQueries: (
-    users: SQLUser[],
+  removeAllPermissionsFromActorsQueries: (
+    users: SQLActor[],
     entities: SQLEntities,
   ) => string[];
   compileGrantQueries: (

@@ -55,6 +55,7 @@ export class PostgresBackend implements SQLBackend {
             groname as "name"
           FROM
             pg_catalog.pg_group
+          WHERE NOT groname LIKE 'pg_%'
         `,
       );
 
@@ -339,7 +340,7 @@ export class PostgresBackend implements SQLBackend {
       teardownQuery,
       transactionStartQuery: "BEGIN;",
       transactionCommitQuery: "COMMIT;",
-      removeAllPermissionsFromUsersQueries: (users, entities) => {
+      removeAllPermissionsFromActorsQueries: (users, entities) => {
         const revokeQueries = users.map(
           (user) => `SELECT ${tmpSchema}.revoke_all_from_role('${user.name}');`,
         );

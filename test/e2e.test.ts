@@ -1022,3 +1022,128 @@ describe("test-func-condition-1", async () => {
     });
   });
 });
+
+describe("actor strictness", async () => {
+  await it("should fail with an empty clause and allowAnyActor=false", async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const errors = ["rule does not specify a user"];
+
+    await assert.rejects(
+      setupEnv("basic", "basic-all-actors-1", db, {
+        user1,
+        user2,
+      }),
+      {
+        message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+      },
+    );
+  });
+
+  await it("should succeed with an empty clause and allowAnyActor=true", async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+
+    const teardown = await setupEnv(
+      "basic",
+      "basic-all-actors-1",
+      db,
+      {
+        user1,
+        user2,
+      },
+      { allowAnyActor: true },
+    );
+
+    await teardown();
+  });
+
+  for (const rules of [
+    "basic-non-existant-actor-1",
+    "basic-non-existant-actor-2",
+  ]) {
+    await it(`${rules}: should fail if a non-existant actor is referenced`, async () => {
+      const db = dbNameGenerator();
+      const user1 = userNameGenerator();
+      const user2 = userNameGenerator();
+      const errors = ["Invalid user or group name: does_not_exist"];
+
+      await assert.rejects(
+        setupEnv("basic", rules, db, {
+          user1,
+          user2,
+        }),
+        {
+          message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+        },
+      );
+    });
+  }
+
+  await it(`should fail if including a user that doesn't exist in userRevokePolicy`, async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const errors = [
+      "Invalid user or group in user revoke policy: does_not_exist",
+    ];
+
+    await assert.rejects(
+      setupEnv(
+        "basic",
+        "basic-1",
+        db,
+        {
+          user1,
+          user2,
+        },
+        {
+          userRevokePolicy: {
+            type: "users",
+            users: [user1, user2, "does_not_exist"],
+          },
+        },
+      ),
+      {
+        message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+      },
+    );
+  });
+
+  await it("should fail if attempting to grant permissions outside of the userRevokePolicy", async () => {
+    const db = dbNameGenerator();
+    const user1 = userNameGenerator();
+    const user2 = userNameGenerator();
+    const user3 = userNameGenerator();
+    const errors = [
+      `Permission granted to user outside of revoke policy: ${user1}`,
+      `Permission granted to user outside of revoke policy: ${user2}`,
+      `Permission granted to group outside of revoke policy: ${user3}`,
+    ];
+
+    await assert.rejects(
+      setupEnv(
+        "group",
+        "basic-all-actors-1",
+        db,
+        {
+          user1,
+          user2,
+          user3,
+        },
+        {
+          allowAnyActor: true,
+          userRevokePolicy: {
+            type: "users",
+            users: [],
+          },
+        },
+      ),
+      {
+        message: `Parse error: ${JSON.stringify(errors, null, 2)}`,
+      },
+    );
+  });
+});
