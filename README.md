@@ -136,8 +136,6 @@ _NOTE_: To avoid unintended behavior, `sqlauthz` is relatively strict about refe
 
 ## Using `sqlauthz` as a library
 
-_NOTE_: This API may change within major version 0
-
 If you want to embed `sqlauthz` within your application, you can also use it as a library. To do this, you must do three things:
 - Create an instance of `PostgresBackend`, passing in a `pg.Client` instance.
 - Call `compileQuery` to compile your query
