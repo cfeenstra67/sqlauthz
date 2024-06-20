@@ -1,8 +1,5 @@
 # sqlauthz - Declarative permissions management for PostgreSQL
 
-> [!WARNING]
-> `sqlauthz` is still experimental. Because permissions have such critical security implications, it's highly recommended that you **inspect the SQL queries** (using the `--dry-run` or `--dry-run-short` CLi arguments) that `sqlauthz` will run before running them and **test** that the resulting roles behave how you expect when using it with any important data.
-
 `sqlauthz` allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
 
 ```polar
