@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.2] - 2024-07-06
+
 ### Added
 
 - Updated README to include recommendations for integrating into a production application.
 
 ### Changed
+
+- Updated `picomatch` version.
 
 ## [1.0.0] - 2024-06-19
 
