@@ -132,6 +132,7 @@ export class PostgresBackend implements SQLBackend {
       this.client.query<{
         schema: string;
         table: string;
+        permissive: "PERMISSIVE" | "RESTRICTIVE";
         name: string;
         users: string;
       }>(
@@ -140,6 +141,7 @@ export class PostgresBackend implements SQLBackend {
             schemaname as "schema",
             tablename as "table",
             policyname as "name",
+            permissive,
             roles as "users"
           FROM
             pg_policies
@@ -270,6 +272,7 @@ export class PostgresBackend implements SQLBackend {
         type: "rls-policy",
         name: row.name,
         table: { type: "table", schema: row.schema, name: row.table },
+        permissive: row.permissive,
         users: parseArray(row.users).map((user) => ({
           type: "user",
           name: user,
@@ -347,8 +350,10 @@ export class PostgresBackend implements SQLBackend {
 
         const userNames = new Set(users.map((user) => user.name));
 
-        const policiesToDrop = entities.rlsPolicies.filter((policy) =>
-          policy.users.some((user) => userNames.has(user.name)),
+        const policiesToDrop = entities.rlsPolicies.filter(
+          (policy) =>
+            policy.permissive === "RESTRICTIVE" &&
+            policy.users.some((user) => userNames.has(user.name)),
         );
         const dropQueries = policiesToDrop.map(
           (policy) =>
@@ -366,7 +371,17 @@ export class PostgresBackend implements SQLBackend {
           ]),
         );
 
+        const tablesWithPermissivePolicies = new Set<string>();
+        for (const policy of entities.rlsPolicies) {
+          if (policy.permissive === "PERMISSIVE") {
+            tablesWithPermissivePolicies.add(
+              this.quoteQualifiedName(policy.table),
+            );
+          }
+        }
+
         const tablesToAddRlsTo = new Set<string>();
+        const tablesToAddDefaultPoliciesTo = new Set<string>();
         for (const perm of permissions) {
           if (perm.type !== "table") {
             continue;
@@ -379,18 +394,28 @@ export class PostgresBackend implements SQLBackend {
           if (!table) {
             continue;
           }
-          if (table.rlsEnabled) {
-            continue;
+          if (!table.rlsEnabled) {
+            tablesToAddRlsTo.add(tableName);
           }
-          tablesToAddRlsTo.add(tableName);
+          if (!tablesWithPermissivePolicies.has(tableName)) {
+            tablesToAddDefaultPoliciesTo.add(tableName);
+          }
         }
 
-        const rlsQueries = Array.from(tablesToAddRlsTo).flatMap((tableName) => [
-          `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
-          // biome-ignore lint: best way to do this
-          `CREATE POLICY "default_access" ON ${tableName} AS PERMISSIVE FOR ` +
+        const enableRlsQueries = Array.from(tablesToAddRlsTo).map(
+          (tableName) => `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
+        );
+
+        const addDefaultPolicyQueries = Array.from(
+          tablesToAddDefaultPoliciesTo,
+        ).map(
+          (tableName) =>
+            // biome-ignore lint: best way to do this
+            `CREATE POLICY "default_access" ON ${tableName} AS PERMISSIVE FOR ` +
             "ALL TO PUBLIC USING (true);",
-        ]);
+        );
+
+        const rlsQueries = enableRlsQueries.concat(addDefaultPolicyQueries);
 
         const individualGrantQueries = permissions.flatMap((perm) =>
           this.compileGrantQuery(perm, entities),

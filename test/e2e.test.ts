@@ -1243,3 +1243,48 @@ describe("long table names", async () => {
     }
   });
 });
+
+describe("adding RLS policies when RLS is already enabled", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient1 = dbClientGenerator(dbUrl(user1, "blah", db));
+  const useClient2 = dbClientGenerator(dbUrl(user2, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("partial-rls", "partial-rls-1", db, {
+      user1,
+      user2,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  for (const [user, useClient] of [
+    ["user1", useClient1],
+    ["user2", useClient2],
+  ] as const) {
+    await it(`${user}: should add default RLS policies to tables w/ RLS enabled`, async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM test.articles");
+        assert.equal(result.rowCount, 4);
+      });
+    });
+  }
+
+  for (const [user, useClient, rowCount] of [
+    ["user1", useClient1, 1],
+    ["user2", useClient2, 0],
+  ] as const) {
+    await it(`${user}: Should not alter existing permissive RLS policies`, async () => {
+      await useClient(async (client) => {
+        const result = await client.query("SELECT * FROM test.articles2");
+        assert.equal(result.rowCount, rowCount);
+      });
+    });
+  }
+});

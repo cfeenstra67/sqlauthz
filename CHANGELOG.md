@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed RLS policies with long table names causing duplicate policies. ([#2](https://github.com/cfeenstra67/sqlauthz/pull/2), thanks @pnispel)
 
+- Handle cases where RLS is already enabled on a table.
+
 ## [1.0.2] - 2024-07-06
 
 ### Added

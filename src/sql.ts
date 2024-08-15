@@ -29,6 +29,7 @@ export interface SQLRowLevelSecurityPolicy {
   type: "rls-policy";
   name: string;
   table: SQLTable;
+  permissive: "PERMISSIVE" | "RESTRICTIVE";
   users: SQLUser[];
 }
 
