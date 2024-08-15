@@ -532,10 +532,7 @@ export class PostgresBackend implements SQLBackend {
               )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 
@@ -558,10 +555,7 @@ export class PostgresBackend implements SQLBackend {
               )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 
@@ -584,10 +578,7 @@ export class PostgresBackend implements SQLBackend {
               )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 
@@ -609,10 +600,7 @@ export class PostgresBackend implements SQLBackend {
                 `TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 

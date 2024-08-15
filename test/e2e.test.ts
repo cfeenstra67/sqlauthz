@@ -1210,13 +1210,13 @@ describe("long table names", async () => {
     const user2 = userNameGenerator();
     const useClient1 = dbClientGenerator(dbUrl(user1, "blah", db));
     const useClient2 = dbClientGenerator(dbUrl(user2, "blah", db));
-    
+
     let teardown: () => Promise<void> = async () => {};
 
     before(async () => {
       teardown = await setupEnv("long-table-name", "long-table-name", db, {
         user1,
-        user2
+        user2,
       });
     });
 
@@ -1230,13 +1230,16 @@ describe("long table names", async () => {
     ] as const) {
       await it(`${user}: can access test.articles_but_with_an_extremely_long_table_name`, async () => {
         await useClient(async (client) => {
-          const result = await client.query("SELECT * FROM test.articles_but_with_an_extremely_long_table_name");
+          const result = await client.query(
+            "SELECT * FROM test.articles_but_with_an_extremely_long_table_name",
+          );
           assert.equal(result.rowCount, 4);
+          const result2 = await client.query(
+            "SELECT * FROM test.articles_but_with_an_extremely_long_table_name_2",
+          );
+          assert.equal(result2.rowCount, 1);
         });
       });
     }
-  })
-})
-  
-
-  
+  });
+});
