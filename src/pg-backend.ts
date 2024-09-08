@@ -287,7 +287,12 @@ export class PostgresBackend implements SQLBackend {
     for (const row of policies.rows) {
       const users: SQLUser[] = [];
       const groups: SQLGroup[] = [];
+      let isDefault = false;
       for (const role of parseArray(row.users)) {
+        if (role === "public") {
+          isDefault = true;
+          continue;
+        }
         if (groupsByName[role]) {
           groups.push(groupsByName[role]);
         }
@@ -305,6 +310,7 @@ export class PostgresBackend implements SQLBackend {
       rlsPolicies.push({
         type: "rls-policy",
         name: row.name,
+        isDefault,
         table: { type: "table", schema: row.schema, name: row.table },
         permissive: row.permissive,
         privileges,
@@ -428,6 +434,10 @@ export class PostgresBackend implements SQLBackend {
           ]),
         );
 
+        const tablesWithDefaultPermissivePolicies: Record<
+          string,
+          Set<string>
+        > = {};
         const tablesWithPermissivePolicies: Record<
           string,
           Record<string, Set<SQLRowLevelSecurityPolicyPrivilege>>
@@ -435,6 +445,15 @@ export class PostgresBackend implements SQLBackend {
         for (const policy of entities.rlsPolicies) {
           if (policy.permissive === "PERMISSIVE") {
             const tableName = this.quoteQualifiedName(policy.table);
+            if (policy.isDefault) {
+              tablesWithDefaultPermissivePolicies[tableName] ??= new Set();
+              const perms = tablesWithDefaultPermissivePolicies[tableName];
+              for (const perm of policy.privileges) {
+                perms.add(perm);
+              }
+              continue;
+            }
+
             tablesWithPermissivePolicies[tableName] ??= {};
             const users = tablesWithPermissivePolicies[tableName];
             const policyUsers = [...policy.users];
@@ -508,9 +527,14 @@ export class PostgresBackend implements SQLBackend {
 
           const usersWithPolicies =
             tablesWithPermissivePolicies[tableName]?.[perm.user.name];
+          const tableDefaultPerms =
+            tablesWithDefaultPermissivePolicies[tableName];
           const missingPerms = new Set<SQLRowLevelSecurityPolicyPrivilege>();
           for (const perm of SQLRowLevelSecurityPolicyPrivileges) {
-            if (!usersWithPolicies?.has(perm)) {
+            if (
+              !usersWithPolicies?.has(perm) &&
+              !tableDefaultPerms?.has(perm)
+            ) {
               missingPerms.add(perm);
             }
           }

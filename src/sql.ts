@@ -41,6 +41,7 @@ export interface SQLRowLevelSecurityPolicy {
   table: SQLTable;
   permissive: "PERMISSIVE" | "RESTRICTIVE";
   privileges: Set<SQLRowLevelSecurityPolicyPrivilege>;
+  isDefault: boolean;
   users: SQLUser[];
   groups: SQLGroup[];
 }

@@ -88,7 +88,10 @@ export async function setupEnv(
   db: string,
   vars: Record<string, string>,
   opts?: Omit<CompileQueryArgs, keyof CreateOsoArgs | "backend">,
+  iterations?: number,
 ): Promise<() => Promise<void>> {
+  const numIterations = iterations ?? 1;
+
   const [setup, teardown] = await loadEnv(env, vars);
 
   const client = new pg.Client(rootDbUrl);
@@ -133,18 +136,22 @@ export async function setupEnv(
     teardowns.push(["Close backend client", () => backendClient.end()]);
 
     const backend = new PostgresBackend(backendClient);
-    const result = await compileQuery({
-      backend,
-      paths: [rulesFile(rules)],
-      vars,
-      ...opts,
-    });
+    for (let i = 0; i < numIterations; i++) {
+      const result = await compileQuery({
+        backend,
+        paths: [rulesFile(rules)],
+        vars,
+        ...opts,
+      });
 
-    if (result.type === "error") {
-      throw new Error(`Parse error: ${JSON.stringify(result.errors, null, 2)}`);
+      if (result.type === "error") {
+        throw new Error(
+          `Parse error: ${JSON.stringify(result.errors, null, 2)}`,
+        );
+      }
+
+      await backendClient.query(result.query);
     }
-
-    await backendClient.query(result.query);
 
     return teardownFunc;
   } catch (error) {
