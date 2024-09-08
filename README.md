@@ -56,6 +56,7 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
 - [Integrating into a production application](#integrating-into-a-production-application)
     - [Integrating into CI/CD](#integrating-into-cicd)
     - [Integrating into tests](#integrating-into-tests)
+- [Considerations when using row-level security](#considerations-when-using-row-level-security)
 - [Usage with VSCode](#usage-with-vscode)
 - [Oso Library Deprecation](#oso-library-deprecation)
 - [Motivation](#motivation)
@@ -505,6 +506,17 @@ Now all you have to do is:
 
 And you will be using a role whose permissions match your production database roles'.
 
+## Considerations when using row-level security
+
+There are a couple of relevant behaviors to be aware of when using `sqlauthz` for row-level security policies:
+- If you write a rule that makes use of row-level security (i.e. using `table.row.<col>` in one of your rules) and row-level security is not enabled for that table, **it will be enabled on that table**. This should not affect existing users because by default `sqlauthz` will add an empty "permissive" policy for the table, so any users not targeted in your `sqlauthz` rules will still be able to access the table normally.
+- `sqlauthz` will drop existing "restrictive" RLS policies before creating new ones based on your Polar rules. This means that if you add a "restrictive" policy manually, it may be dropped next time you run `sqlauthz`. This only applies where both of the following conditions where the policy is both:
+    - on a table where you are granting a permission to any user using RLS
+    - targetting a user in your [user revoke strategy](#user-revoke-strategies)
+- `sqlauthz` will add an empty "permissive" policy that applies to all users when it enables row-level security on a table. However, when row-level security is already enabled on a table, it will only create "missing" permissive policies. A permissive policy is created for any user and permission that is granted access to a given table where none exist, regardless of whether their access is limited with any restrictive RLS policies. This only happens to tables where RLS is "required" meaning that your polar rules specify at least one permission that requires a RLS policy on that table AND tables where RLS is already enabled.
+
+For more information on RLS in Postgres and to learn more about "permissive" and "restrictive" policies, check out [the docs](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
+
 ## Usage with VSCode
 
 You can use the [Oso VSCode plugin](https://marketplace.visualstudio.com/items?itemName=osohq.oso) to get syntax highlighting and LSP support for your `.polar` files. However, you should add this setting to your `.vscode/settings.json` to avoid syntax errors:
@@ -548,7 +560,7 @@ REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
 
 - Does not support setting permissions on built-in functions or procedures (defined as functions in the `pg_catalog` schema)
 
-- Support for using SQL functions in row-level security clauses is imperfect. It works for simple cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level seucurity clauses):
+- Support for using SQL functions in row-level security clauses is imperfect. It works for simple cases, but there are some known limitations (See [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses) for an explanation of how to use SQL functions in row-level security clauses):
     - You cannot write a clause that compares the results of two function calls e.g. `sql.date_trunc("hour", table.row.created_at) == sql.date_trunc("hour", table.row.updated_at)`. At the moment there is no workaround; this is something that is very difficult to support with the `oso` Polar engine.
     - When writing a clause that operates on the result of a function call and a literal, you will have to use the `sql.lit` helper to declare the literal. E.g. rather than `sql.date_trunc("hour", table.row.created_at) == "2023-01-01T00:00:00"` you would have to write `sql.date_trunc("hour", table.row.created_at) == sql.lit("2023-01-01T00:00:00")`.
         - This includes if you use a SQL function that returns a boolean e.g. rather than `if sql.my_func.is_ok(resource.row.id)` you should write `if sql.my_func.is_ok(resource.row.id) == sql.lit(true)`

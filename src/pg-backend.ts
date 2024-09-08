@@ -12,16 +12,22 @@ import {
   isTrueClause,
   simpleEvaluator,
 } from "./clause.js";
+import { VERSION } from "./constants.js";
 import {
   FunctionPermission,
   Permission,
   SQLActor,
   SQLFunction,
+  SQLGroup,
   SQLProcedure,
+  SQLRowLevelSecurityPolicy,
+  SQLRowLevelSecurityPolicyPrivilege,
+  SQLRowLevelSecurityPolicyPrivileges,
   SQLSchema,
   SQLSequence,
   SQLTable,
   SQLTableMetadata,
+  SQLUser,
   SQLView,
   SchemaPermission,
   TablePermission,
@@ -38,10 +44,11 @@ export class PostgresBackend implements SQLBackend {
 
   async fetchEntities(): Promise<SQLEntities> {
     const getUsers = () =>
-      this.client.query<{ name: string }>(
+      this.client.query<{ name: string; id: number }>(
         `
           SELECT
-            usename as "name"
+            usename as "name",
+            usesysid as "id"
           FROM
             pg_catalog.pg_user
           WHERE NOT usesuper
@@ -49,10 +56,12 @@ export class PostgresBackend implements SQLBackend {
       );
 
     const getGroups = () =>
-      this.client.query<{ name: string }>(
+      this.client.query<{ name: string; userIds: number[]; id: number }>(
         `
           SELECT
-            groname as "name"
+            groname as "name",
+            grolist as "userIds",
+            grosysid as "id"
           FROM
             pg_catalog.pg_group
           WHERE NOT groname LIKE 'pg_%'
@@ -132,6 +141,8 @@ export class PostgresBackend implements SQLBackend {
       this.client.query<{
         schema: string;
         table: string;
+        permissive: "PERMISSIVE" | "RESTRICTIVE";
+        cmd: string;
         name: string;
         users: string;
       }>(
@@ -140,6 +151,8 @@ export class PostgresBackend implements SQLBackend {
             schemaname as "schema",
             tablename as "table",
             policyname as "name",
+            permissive,
+            cmd,
             roles as "users"
           FROM
             pg_policies
@@ -256,9 +269,53 @@ export class PostgresBackend implements SQLBackend {
       }
     }
 
+    const usersById: Record<number, SQLUser> = Object.fromEntries(
+      users.rows.map((row) => [row.id, { type: "user", name: row.name }]),
+    );
+    const usersByName = Object.fromEntries(
+      Object.values(usersById).map((user) => [user.name, user]),
+    );
+    const groupsByName: Record<number, SQLGroup> = {};
+    for (const group of groups.rows) {
+      const users = group.userIds.flatMap((userId) =>
+        usersById[userId] ? [usersById[userId]] : [],
+      );
+      groupsByName[group.name] = { type: "group", name: group.name, users };
+    }
+
+    const rlsPolicies: SQLRowLevelSecurityPolicy[] = [];
+    for (const row of policies.rows) {
+      const users: SQLUser[] = [];
+      const groups: SQLGroup[] = [];
+      for (const role of parseArray(row.users)) {
+        if (groupsByName[role]) {
+          groups.push(groupsByName[role]);
+        }
+        if (usersByName[role]) {
+          users.push(usersByName[role]);
+        }
+      }
+      let privileges: Set<SQLRowLevelSecurityPolicyPrivilege>;
+      if (row.cmd === "ALL") {
+        privileges = new Set(SQLRowLevelSecurityPolicyPrivileges);
+      } else {
+        privileges = new Set([row.cmd as SQLRowLevelSecurityPolicyPrivilege]);
+      }
+
+      rlsPolicies.push({
+        type: "rls-policy",
+        name: row.name,
+        table: { type: "table", schema: row.schema, name: row.table },
+        permissive: row.permissive,
+        privileges,
+        users,
+        groups,
+      });
+    }
+
     return {
-      users: users.rows.map((row) => ({ type: "user", name: row.name })),
-      groups: groups.rows.map((row) => ({ type: "group", name: row.name })),
+      users: Object.values(usersById),
+      groups: Object.values(groupsByName),
       schemas: schemas.rows.map((row) => ({ type: "schema", name: row.name })),
       views: views.rows.map((row) => ({
         type: "view",
@@ -266,15 +323,7 @@ export class PostgresBackend implements SQLBackend {
         name: row.name,
       })),
       tables: Object.values(tableItems),
-      rlsPolicies: policies.rows.map((row) => ({
-        type: "rls-policy",
-        name: row.name,
-        table: { type: "table", schema: row.schema, name: row.table },
-        users: parseArray(row.users).map((user) => ({
-          type: "user",
-          name: user,
-        })),
-      })),
+      rlsPolicies,
       functions,
       procedures,
       sequences: sequences.rows.map((row) => ({ type: "sequence", ...row })),
@@ -301,12 +350,23 @@ export class PostgresBackend implements SQLBackend {
   private async loadSqlFile(
     name: string,
     variables: Record<string, string>,
+    debug?: boolean,
   ): Promise<string> {
     const filePath = path.join(SqlDir, name);
     let content = await fs.promises.readFile(filePath, { encoding: "utf8" });
     for (const [key, value] of Object.entries(variables)) {
       content = content.replaceAll(`{{${key}}}`, value);
     }
+    if (!debug) {
+      // Strip comments
+      content = content.replace(/\s--\s.+$/gm, "");
+      // Trim whitespace
+      content = content.replace(/\s+/gm, " ").trim();
+      // Add pointer to original source code
+      const baseUrl = `https://github.com/cfeenstra67/sqlauthz/blob/v${VERSION}/src/sql/pg`;
+      content += ` -- Formatted version: ${baseUrl}/${name}`;
+    }
+
     return content;
   }
 
@@ -347,8 +407,10 @@ export class PostgresBackend implements SQLBackend {
 
         const userNames = new Set(users.map((user) => user.name));
 
-        const policiesToDrop = entities.rlsPolicies.filter((policy) =>
-          policy.users.some((user) => userNames.has(user.name)),
+        const policiesToDrop = entities.rlsPolicies.filter(
+          (policy) =>
+            policy.permissive === "RESTRICTIVE" &&
+            policy.users.some((user) => userNames.has(user.name)),
         );
         const dropQueries = policiesToDrop.map(
           (policy) =>
@@ -366,6 +428,34 @@ export class PostgresBackend implements SQLBackend {
           ]),
         );
 
+        const tablesWithPermissivePolicies: Record<
+          string,
+          Record<string, Set<SQLRowLevelSecurityPolicyPrivilege>>
+        > = {};
+        for (const policy of entities.rlsPolicies) {
+          if (policy.permissive === "PERMISSIVE") {
+            const tableName = this.quoteQualifiedName(policy.table);
+            tablesWithPermissivePolicies[tableName] ??= {};
+            const users = tablesWithPermissivePolicies[tableName];
+            const policyUsers = [...policy.users];
+            for (const group of policy.groups) {
+              users[group.name] ??= new Set();
+              const groupPerms = users[group.name]!;
+              for (const perm of policy.privileges) {
+                groupPerms.add(perm);
+              }
+              policyUsers.push(...group.users);
+            }
+            for (const user of policyUsers) {
+              users[user.name] ??= new Set();
+              const userPerms = users[user.name]!;
+              for (const perm of policy.privileges) {
+                userPerms.add(perm);
+              }
+            }
+          }
+        }
+
         const tablesToAddRlsTo = new Set<string>();
         for (const perm of permissions) {
           if (perm.type !== "table") {
@@ -374,23 +464,108 @@ export class PostgresBackend implements SQLBackend {
           if (isTrueClause(perm.rowClause)) {
             continue;
           }
+          if (
+            !SQLRowLevelSecurityPolicyPrivileges.includes(
+              perm.privilege as SQLRowLevelSecurityPolicyPrivilege,
+            )
+          ) {
+            continue;
+          }
           const tableName = this.quoteQualifiedName(perm.table);
           const table = metaByTable[tableName];
           if (!table) {
             continue;
           }
-          if (table.rlsEnabled) {
-            continue;
+          if (!table.rlsEnabled) {
+            tablesToAddRlsTo.add(tableName);
           }
-          tablesToAddRlsTo.add(tableName);
         }
 
-        const rlsQueries = Array.from(tablesToAddRlsTo).flatMap((tableName) => [
-          `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
-          // biome-ignore lint: best way to do this
-          `CREATE POLICY "default_access" ON ${tableName} AS PERMISSIVE FOR ` +
-            "ALL TO PUBLIC USING (true);",
-        ]);
+        const defaultPoliciesToCreate: Record<
+          string,
+          Record<string, Set<string>>
+        > = {};
+        for (const perm of permissions) {
+          if (perm.type !== "table") {
+            continue;
+          }
+          if (
+            !SQLRowLevelSecurityPolicyPrivileges.includes(
+              perm.privilege as SQLRowLevelSecurityPolicyPrivilege,
+            )
+          ) {
+            continue;
+          }
+
+          const tableName = this.quoteQualifiedName(perm.table);
+          const table = metaByTable[tableName];
+          if (!table) {
+            continue;
+          }
+          if (!table.rlsEnabled || tablesToAddRlsTo.has(tableName)) {
+            continue;
+          }
+
+          const usersWithPolicies =
+            tablesWithPermissivePolicies[tableName]?.[perm.user.name];
+          const missingPerms = new Set<SQLRowLevelSecurityPolicyPrivilege>();
+          for (const perm of SQLRowLevelSecurityPolicyPrivileges) {
+            if (!usersWithPolicies?.has(perm)) {
+              missingPerms.add(perm);
+            }
+          }
+
+          if (missingPerms.size === 0) {
+            continue;
+          }
+
+          defaultPoliciesToCreate[tableName] ??= {};
+          defaultPoliciesToCreate[tableName]![perm.user.name] = missingPerms;
+        }
+
+        const enableRlsQueries = Array.from(tablesToAddRlsTo).flatMap(
+          (tableName) => [
+            `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
+            // biome-ignore lint: best way to do this
+            `CREATE POLICY "default_access" ON ${tableName} AS PERMISSIVE FOR ` +
+              "ALL TO PUBLIC USING (true);",
+          ],
+        );
+
+        const addDefaultPolicyQueries = Object.entries(
+          defaultPoliciesToCreate,
+        ).flatMap(([tableName, userPerms]) =>
+          Object.entries(userPerms).flatMap(([userName, perms]) => {
+            const getQuery = (perm: string) => {
+              const extra: string[] = [];
+              if (
+                perm === "ALL" ||
+                perm === "DELETE" ||
+                perm === "SELECT" ||
+                perm === "UPDATE"
+              ) {
+                extra.push("USING (true)");
+              }
+              if (perm === "ALL" || perm === "INSERT" || perm === "UPDATE") {
+                extra.push("WITH CHECK (true)");
+              }
+              const name = `${userName}_${perm.toLowerCase()}`;
+              return (
+                `CREATE POLICY ${this.quoteIdentifier(name)} ` +
+                `ON ${tableName} AS PERMISSIVE FOR ${perm} TO ` +
+                `${this.quoteIdentifier(userName)} ${extra.join(" ")};`
+              );
+            };
+
+            if (perms.size === SQLRowLevelSecurityPolicyPrivileges.length) {
+              return [getQuery("ALL")];
+            }
+
+            return Array.from(perms).map((perm) => getQuery(perm));
+          }),
+        );
+
+        const rlsQueries = enableRlsQueries.concat(addDefaultPolicyQueries);
 
         const individualGrantQueries = permissions.flatMap((perm) =>
           this.compileGrantQuery(perm, entities),
@@ -532,10 +707,7 @@ export class PostgresBackend implements SQLBackend {
               )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 
@@ -558,10 +730,7 @@ export class PostgresBackend implements SQLBackend {
               )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 
@@ -584,12 +753,11 @@ export class PostgresBackend implements SQLBackend {
               )} TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
+
+              const rowClauseSql = this.clauseToSql(permission.rowClause);
 
               out.push(
                 `CREATE POLICY ${this.quoteIdentifier(
@@ -598,7 +766,7 @@ export class PostgresBackend implements SQLBackend {
                   permission.table,
                 )} AS RESTRICTIVE FOR UPDATE TO ${this.quoteTopLevelName(
                   permission.user,
-                )} USING (${this.clauseToSql(permission.rowClause)});`,
+                )} USING (${rowClauseSql}) WITH CHECK (${rowClauseSql});`,
               );
             }
             return out;
@@ -609,10 +777,7 @@ export class PostgresBackend implements SQLBackend {
                 `TO ${this.quoteTopLevelName(permission.user)};`,
             ];
             if (!isTrueClause(permission.rowClause)) {
-              const policyName = [
-                permission.privilege,
-                permission.user.name,
-              ]
+              const policyName = [permission.privilege, permission.user.name]
                 .join("_")
                 .toLowerCase();
 

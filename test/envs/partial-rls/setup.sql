@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE SCHEMA test;
 
-CREATE TABLE test.articles_but_with_an_extremely_long_table_name (
+CREATE TABLE test.articles (
     id SERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
@@ -11,16 +11,7 @@ CREATE TABLE test.articles_but_with_an_extremely_long_table_name (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE test.articles_but_with_an_extremely_long_table_name_2 (
-    id SERIAL PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    author VARCHAR(100),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-INSERT INTO test.articles_but_with_an_extremely_long_table_name (title, content, author, created_at, updated_at) VALUES
+INSERT INTO test.articles (title, content, author, created_at, updated_at) VALUES
 ('Article 1', 'Content for article 1', 'Author A', '2023-01-01 10:00:00', '2023-01-01 10:00:00'),
 ('Article 2', 'Content for article 2', 'Author B', '2023-01-02 10:00:00', '2023-01-02 11:00:00'),
 ('Article 3', 'Content for article 3', 'Author C', '2023-01-03 10:00:00', '2023-01-03 12:00:00'),
@@ -34,12 +25,28 @@ INSERT INTO test.articles_but_with_an_extremely_long_table_name (title, content,
 ('Article 11', 'Content for article 11', 'Author B', '2023-01-11 10:00:00', '2023-01-11 20:00:00'),
 ('Article 12', 'Content for article 12', 'Author C', '2023-01-12 10:00:00', '2023-01-12 21:00:00');
 
-INSERT INTO test.articles_but_with_an_extremely_long_table_name_2 (title, content, author, created_at, updated_at) VALUES
+ALTER TABLE test.articles ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE test.articles2 (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    author VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO test.articles2 (title, content, author, created_at, updated_at) VALUES
 ('Article 1', 'Content for article 1', 'Author A', '2023-01-01 10:00:00', '2023-01-01 10:00:00'),
-('Article 2', 'Content for article 2', 'Author B', '2023-01-02 10:00:00', '2023-01-02 11:00:00');
+('Article 2', 'Content for article 2', 'Author B', '2023-01-02 10:00:00', '2023-01-02 11:00:00'),
+('Article 3', 'Content for article 3', 'Author A', '2023-01-01 10:00:00', '2023-01-01 10:00:00');
+
+ALTER TABLE test.articles2 ENABLE ROW LEVEL SECURITY;
 
 CREATE USER {{user1}} WITH PASSWORD 'blah';
 
 CREATE USER {{user2}} WITH PASSWORD 'blah';
+
+CREATE POLICY "limit_user_1" ON test.articles2 AS PERMISSIVE FOR SELECT TO {{user1}} USING ("title" = 'Article 1');
 
 COMMIT;

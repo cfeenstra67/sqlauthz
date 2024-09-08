@@ -25,11 +25,24 @@ export interface SQLSchema {
   name: string;
 }
 
+export const SQLRowLevelSecurityPolicyPrivileges = [
+  "SELECT",
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+] as const satisfies TablePrivilege[];
+
+export type SQLRowLevelSecurityPolicyPrivilege =
+  (typeof SQLRowLevelSecurityPolicyPrivileges)[number];
+
 export interface SQLRowLevelSecurityPolicy {
   type: "rls-policy";
   name: string;
   table: SQLTable;
+  permissive: "PERMISSIVE" | "RESTRICTIVE";
+  privileges: Set<SQLRowLevelSecurityPolicyPrivilege>;
   users: SQLUser[];
+  groups: SQLGroup[];
 }
 
 export interface SQLFunction {
@@ -60,6 +73,7 @@ export interface SQLUser {
 export interface SQLGroup {
   type: "group";
   name: string;
+  users: SQLUser[];
 }
 
 export type SQLActor = SQLUser | SQLGroup;
