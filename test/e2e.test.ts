@@ -1278,12 +1278,94 @@ describe("adding RLS policies when RLS is already enabled", async () => {
 
   for (const [user, useClient, rowCount] of [
     ["user1", useClient1, 1],
-    ["user2", useClient2, 0],
+    ["user2", useClient2, 2],
   ] as const) {
     await it(`${user}: Should not alter existing permissive RLS policies`, async () => {
       await useClient(async (client) => {
         const result = await client.query("SELECT * FROM test.articles2");
         assert.equal(result.rowCount, rowCount);
+      });
+    });
+  }
+});
+
+describe("RLS for mutation operations", async () => {
+  const user1 = userNameGenerator();
+  const user2 = userNameGenerator();
+  const db = dbNameGenerator();
+  const useClient1 = dbClientGenerator(dbUrl(user1, "blah", db));
+  const useClient2 = dbClientGenerator(dbUrl(user2, "blah", db));
+
+  let teardown: () => Promise<void> = async () => {};
+
+  before(async () => {
+    teardown = await setupEnv("rls-mutation", "rls-mutation-1", db, {
+      user1,
+      user2,
+    });
+  });
+
+  after(async () => {
+    await teardown();
+  });
+
+  const authors = ["Author A", "Author B"];
+
+  for (const [user, userName, isDefaultPolicy, author, useClient] of [
+    ["user1", user1, true, "Author A", useClient1],
+    ["user2", user2, false, "Author B", useClient2],
+  ] as const) {
+    const otherAuthor = authors.filter((x) => x !== author)[0]!;
+
+    await it(`${user}: should only be able to update their own articles`, async () => {
+      await useClient(async (client) => {
+        const query =
+          "UPDATE test.articles SET title = title WHERE author = $1";
+        const updateResult = await client.query(query, [author]);
+        assert.equal(updateResult.rowCount, 5);
+
+        const updateResult2 = await client.query(query, [otherAuthor]);
+        assert.equal(updateResult2.rowCount, 0);
+
+        let error: string;
+        if (isDefaultPolicy) {
+          error = `new row violates row-level security policy for table "articles"`;
+        } else {
+          error = `new row violates row-level security policy "update_${userName}" for table "articles"`;
+        }
+
+        await assert.rejects(
+          client.query(
+            "UPDATE test.articles SET author = $1 WHERE author = $2",
+            [otherAuthor, author],
+          ),
+          {
+            message: error,
+          },
+        );
+      });
+    });
+
+    await it(`${user}: should only be able to delete their own articles`, async () => {
+      await useClient(async (client) => {
+        const query = "DELETE FROM test.articles WHERE author = $1";
+        const result = await client.query(query, [author]);
+        assert.equal(result.rowCount, 5);
+        const result2 = await client.query(query, [otherAuthor]);
+        assert.equal(result2.rowCount, 0);
+      });
+    });
+
+    await it(`${user}: should only be able to create their own articles`, async () => {
+      await useClient(async (client) => {
+        const query =
+          "INSERT INTO test.articles (author, title) VALUES ($1, $2)";
+        const result = await client.query(query, [author, "Blah 123"]);
+        assert.equal(result.rowCount, 1);
+
+        await assert.rejects(client.query(query, [otherAuthor, "Blah 123"]), {
+          message: `new row violates row-level security policy "insert_${userName}" for table "articles"`,
+        });
       });
     });
   }

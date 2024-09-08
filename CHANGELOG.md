@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.4] - 2024-09-08
+
 ### Fixed
 
-- Handle cases where RLS is already enabled on a table.
+- Handle cases where RLS is already enabled on a table, and may potentially already have permissive policies.
+
+- Fixed missing `WITH CHECK` constraint for `UPDATE` RLS policies.
 
 ## [1.0.3] - 2024-08-14
 

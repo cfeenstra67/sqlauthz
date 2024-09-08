@@ -47,6 +47,6 @@ CREATE USER {{user1}} WITH PASSWORD 'blah';
 
 CREATE USER {{user2}} WITH PASSWORD 'blah';
 
-CREATE POLICY "only_allow_user_1" ON test.articles2 AS PERMISSIVE FOR ALL TO {{user1}} USING ("title" = 'Article 1');
+CREATE POLICY "limit_user_1" ON test.articles2 AS PERMISSIVE FOR SELECT TO {{user1}} USING ("title" = 'Article 1');
 
 COMMIT;

@@ -5,6 +5,7 @@
     "compilerOptions": {
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
+        "resolveJsonModule": true,
         "declaration": true,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
