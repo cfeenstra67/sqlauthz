@@ -510,10 +510,10 @@ And you will be using a role whose permissions match your production database ro
 
 There are a couple of relevant behaviors to be aware of when using `sqlauthz` for row-level security policies:
 - If you write a rule that makes use of row-level security (i.e. using `table.row.<col>` in one of your rules) and row-level security is not enabled for that table, **it will be enabled on that table**. This should not affect existing users because by default `sqlauthz` will add an empty "permissive" policy for the table, so any users not targeted in your `sqlauthz` rules will still be able to access the table normally.
-- `sqlauthz` will drop existing "restrictive" RLS policies before creating new ones based on your Polar rules. This means that if you add a "restrictive" policy manually, it may be dropped next time you run `sqlauthz`. This only applies to:
-    - Tables where you are granting a permission to a user using RLS
-    - Policies that target a user in your [user revoke strategy](#user-revoke-strategies)
-- `sqlauthz` will add an empty "permissive" policy that applies to all users _if no permissive policies exist on that table_. Again, this only happens to tables that your polar rules specify a RLS policy on. If an existing permissive policy exists, `sqlauthz` will not add a policy.
+- `sqlauthz` will drop existing "restrictive" RLS policies before creating new ones based on your Polar rules. This means that if you add a "restrictive" policy manually, it may be dropped next time you run `sqlauthz`. This only applies where both of the following conditions where the policy is both:
+    - on a table where you are granting a permission to any user using RLS
+    - targetting a user in your [user revoke strategy](#user-revoke-strategies)
+- `sqlauthz` will add an empty "permissive" policy that applies to all users when it enables row-level security on a table. However, when row-level security is already enabled on a table, it will only create "missing" permissive policies. A permissive policy is created for any user and permission that is granted access to a given table where none exist, regardless of whether their access is limited with any restrictive RLS policies. This only happens to tables where RLS is "required" meaning that your polar rules specify at least one permission that requires a RLS policy on that table.
 
 For more information on RLS in Postgres and to learn more about "permissive" and "restrictive" policies, check out [the docs](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
 

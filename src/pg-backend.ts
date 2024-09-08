@@ -502,7 +502,7 @@ export class PostgresBackend implements SQLBackend {
           if (!table) {
             continue;
           }
-          if (!table.rlsEnabled && !tablesToAddRlsTo.has(tableName)) {
+          if (!table.rlsEnabled || tablesToAddRlsTo.has(tableName)) {
             continue;
           }
 
@@ -523,8 +523,13 @@ export class PostgresBackend implements SQLBackend {
           defaultPoliciesToCreate[tableName]![perm.user.name] = missingPerms;
         }
 
-        const enableRlsQueries = Array.from(tablesToAddRlsTo).map(
-          (tableName) => `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
+        const enableRlsQueries = Array.from(tablesToAddRlsTo).flatMap(
+          (tableName) => [
+            `ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY;`,
+            // biome-ignore lint: best way to do this
+            `CREATE POLICY "default_access" ON ${tableName} AS PERMISSIVE FOR ` +
+              "ALL TO PUBLIC USING (true);",
+          ],
         );
 
         const addDefaultPolicyQueries = Object.entries(
