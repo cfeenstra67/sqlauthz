@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.6] - 2024-11-19
+
+### Fixed
+
+- When there is an error compiling permission queries in the CLI, exit w/ a code of 1 to indicate failure.
+
 ## [1.0.4] - 2024-09-08
 
 ### Fixed

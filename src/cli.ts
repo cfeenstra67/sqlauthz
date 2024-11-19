@@ -246,7 +246,7 @@ async function main() {
       for (const error of query.errors) {
         console.error(error);
       }
-      return;
+      process.exit(1);
     }
 
     if (args.dryRun || args.dryRunShort) {
