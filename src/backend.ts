@@ -1,6 +1,7 @@
-import {
+import type {
   Permission,
   SQLActor,
+  SQLDirectPrivilege,
   SQLFunction,
   SQLGroup,
   SQLProcedure,
@@ -22,6 +23,8 @@ export interface SQLEntities {
   functions: SQLFunction[];
   procedures: SQLProcedure[];
   sequences: SQLSequence[];
+  directPrivileges?: SQLDirectPrivilege[];
+  roleMemberships?: { role: string; member: string }[];
 }
 
 export interface SQLBackendContext {
@@ -33,9 +36,15 @@ export interface SQLBackendContext {
     users: SQLActor[],
     entities: SQLEntities,
   ) => string[];
+  reconcilePermissionsQueries?: (
+    users: SQLActor[],
+    permissions: Permission[],
+    entities: SQLEntities,
+  ) => string[];
   compileGrantQueries: (
     permissions: Permission[],
     entities: SQLEntities,
+    includePermissionGrants?: boolean,
   ) => string[];
 }
 

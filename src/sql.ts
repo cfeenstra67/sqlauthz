@@ -1,5 +1,5 @@
-import { SQLBackendContext, SQLEntities } from "./backend.js";
-import { Clause } from "./clause.js";
+import type { SQLBackendContext, SQLEntities } from "./backend.js";
+import type { Clause } from "./clause.js";
 
 export interface SQLTable {
   type: "table";
@@ -171,6 +171,16 @@ export type Privilege = {
   [P in Permission as P["type"]]: P["privilege"];
 }[Permission["type"]];
 
+export interface SQLDirectPrivilege {
+  actor: string;
+  type: Permission["type"];
+  schema: string;
+  name?: string;
+  privilege: Privilege;
+  column?: string;
+  grantOption: boolean;
+}
+
 export function parseQualifiedName(tableName: string): [string, string] | null {
   const parts = tableName.split(".");
   if (parts.length !== 2) {
@@ -190,6 +200,7 @@ export interface ConstructFullQueryArgs {
   permissions: Permission[];
   includeSetupAndTeardown?: boolean;
   includeTransaction?: boolean;
+  reconcile?: boolean;
 }
 
 export function constructFullQuery({
@@ -199,6 +210,7 @@ export function constructFullQuery({
   permissions,
   includeSetupAndTeardown,
   includeTransaction,
+  reconcile,
 }: ConstructFullQueryArgs): string {
   if (includeSetupAndTeardown === undefined) {
     includeSetupAndTeardown = true;
@@ -213,23 +225,36 @@ export function constructFullQuery({
     queryParts.push(context.transactionStartQuery);
   }
 
-  if (context.setupQuery && includeSetupAndTeardown) {
+  if (context.setupQuery && includeSetupAndTeardown && !reconcile) {
     queryParts.push(context.setupQuery);
   }
 
-  if (includeSetupAndTeardown) {
-    const removeQueries = context.removeAllPermissionsFromActorsQueries(
+  if (reconcile) {
+    if (!context.reconcilePermissionsQueries) {
+      throw new Error(
+        "The configured SQL backend does not support reconciliation",
+      );
+    }
+    const reconcileQueries = context.reconcilePermissionsQueries(
       revokeUsers,
+      permissions,
       entities,
     );
-
-    queryParts.push(...removeQueries);
+    queryParts.push(...reconcileQueries);
+  } else if (includeSetupAndTeardown) {
+    queryParts.push(
+      ...context.removeAllPermissionsFromActorsQueries(revokeUsers, entities),
+    );
   }
 
-  const grantQueries = context.compileGrantQueries(permissions, entities);
+  const grantQueries = context.compileGrantQueries(
+    permissions,
+    entities,
+    !reconcile,
+  );
   queryParts.push(...grantQueries);
 
-  if (context.teardownQuery && includeSetupAndTeardown) {
+  if (context.teardownQuery && includeSetupAndTeardown && !reconcile) {
     queryParts.push(context.teardownQuery);
   }
   if (context.transactionCommitQuery && includeTransaction) {

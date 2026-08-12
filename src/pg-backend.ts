@@ -2,11 +2,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import pg from "pg";
-import { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
+import type pg from "pg";
+import type { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
 import {
-  Clause,
-  Literal,
+  type Clause,
+  type Literal,
   ValidationError,
   evaluateClause,
   isTrueClause,
@@ -14,24 +14,25 @@ import {
 } from "./clause.js";
 import { VERSION } from "./constants.js";
 import {
-  FunctionPermission,
-  Permission,
-  SQLActor,
-  SQLFunction,
-  SQLGroup,
-  SQLProcedure,
-  SQLRowLevelSecurityPolicy,
-  SQLRowLevelSecurityPolicyPrivilege,
+  type FunctionPermission,
+  type Permission,
+  type SQLActor,
+  type SQLDirectPrivilege,
+  type SQLFunction,
+  type SQLGroup,
+  type SQLProcedure,
+  type SQLRowLevelSecurityPolicy,
+  type SQLRowLevelSecurityPolicyPrivilege,
   SQLRowLevelSecurityPolicyPrivileges,
-  SQLSchema,
-  SQLSequence,
-  SQLTable,
-  SQLTableMetadata,
-  SQLUser,
-  SQLView,
-  SchemaPermission,
-  TablePermission,
-  ViewPermission,
+  type SQLSchema,
+  type SQLSequence,
+  type SQLTable,
+  type SQLTableMetadata,
+  type SQLUser,
+  type SQLView,
+  type SchemaPermission,
+  type TablePermission,
+  type ViewPermission,
 } from "./sql.js";
 import { valueToSqlLiteral } from "./utils.js";
 
@@ -85,6 +86,19 @@ export class PostgresBackend implements SQLBackend {
             schemaname != 'information_schema'
             AND schemaname != 'pg_catalog'
             AND schemaname != 'pg_toast'
+
+          UNION ALL
+
+          SELECT
+            foreign_table_schema as "schema",
+            foreign_table_name as "name",
+            false as "rlsEnabled"
+          FROM
+            information_schema.foreign_tables
+          WHERE
+            foreign_table_schema != 'information_schema'
+            AND foreign_table_schema != 'pg_catalog'
+            AND foreign_table_schema != 'pg_toast'
         `,
       );
 
@@ -134,6 +148,18 @@ export class PostgresBackend implements SQLBackend {
             table_schema != 'information_schema'
             AND table_schema != 'pg_catalog'
             AND table_schema != 'pg_toast'
+
+          UNION ALL
+
+          SELECT
+            schemaname as "schema",
+            matviewname as "name"
+          FROM
+            pg_catalog.pg_matviews
+          WHERE
+            schemaname != 'information_schema'
+            AND schemaname != 'pg_catalog'
+            AND schemaname != 'pg_toast'
         `,
       );
 
@@ -200,6 +226,87 @@ export class PostgresBackend implements SQLBackend {
         `,
       );
 
+    const getDirectPrivileges = () =>
+      this.client.query<SQLDirectPrivilege>(`
+        SELECT
+          grantee.rolname AS actor,
+          CASE
+            WHEN c.relkind = 'S' THEN 'sequence'
+            WHEN c.relkind IN ('v', 'm') THEN 'view'
+            ELSE 'table'
+          END AS type,
+          n.nspname AS schema,
+          c.relname AS name,
+          acl.privilege_type AS privilege,
+          NULL::text AS column,
+          acl.is_grantable AS "grantOption"
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) acl
+        JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
+        WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+          AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+
+        UNION ALL
+
+        SELECT
+          grantee.rolname AS actor,
+          CASE WHEN c.relkind IN ('v', 'm') THEN 'view' ELSE 'table' END AS type,
+          n.nspname AS schema,
+          c.relname AS name,
+          acl.privilege_type AS privilege,
+          a.attname AS column,
+          acl.is_grantable AS "grantOption"
+        FROM pg_catalog.pg_attribute a
+        JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+        JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
+        WHERE a.attnum > 0
+          AND NOT a.attisdropped
+          AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+
+        UNION ALL
+
+        SELECT
+          grantee.rolname AS actor,
+          'schema' AS type,
+          n.nspname AS schema,
+          NULL::text AS name,
+          acl.privilege_type AS privilege,
+          NULL::text AS column,
+          acl.is_grantable AS "grantOption"
+        FROM pg_catalog.pg_namespace n
+        CROSS JOIN LATERAL pg_catalog.aclexplode(n.nspacl) acl
+        JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
+        WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+
+        UNION ALL
+
+        SELECT
+          grantee.rolname AS actor,
+          CASE WHEN p.prokind = 'p' THEN 'procedure' ELSE 'function' END AS type,
+          n.nspname AS schema,
+          p.proname AS name,
+          acl.privilege_type AS privilege,
+          NULL::text AS column,
+          acl.is_grantable AS "grantOption"
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) acl
+        JOIN pg_catalog.pg_roles grantee ON grantee.oid = acl.grantee
+        WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+      `);
+
+    const getRoleMemberships = () =>
+      this.client.query<{ role: string; member: string }>(`
+        SELECT role.rolname AS role, member.rolname AS member
+        FROM pg_catalog.pg_auth_members membership
+        JOIN pg_catalog.pg_roles role ON role.oid = membership.roleid
+        JOIN pg_catalog.pg_roles member ON member.oid = membership.member
+      `);
+
     const [
       users,
       groups,
@@ -210,6 +317,8 @@ export class PostgresBackend implements SQLBackend {
       policies,
       functionsAndProcedures,
       sequences,
+      directPrivileges,
+      roleMemberships,
     ] = await Promise.all([
       getUsers(),
       getGroups(),
@@ -220,6 +329,8 @@ export class PostgresBackend implements SQLBackend {
       getPolicies(),
       getFunctionsAndProcedures(),
       getSequences(),
+      getDirectPrivileges(),
+      getRoleMemberships(),
     ]);
 
     const tableItems: Record<string, SQLTableMetadata> = {};
@@ -333,6 +444,8 @@ export class PostgresBackend implements SQLBackend {
       functions,
       procedures,
       sequences: sequences.rows.map((row) => ({ type: "sequence", ...row })),
+      directPrivileges: directPrivileges.rows,
+      roleMemberships: roleMemberships.rows,
     };
   }
 
@@ -351,6 +464,127 @@ export class PostgresBackend implements SQLBackend {
       this.quoteIdentifier(table.schema),
       this.quoteIdentifier(table.name),
     ].join(".");
+  }
+
+  private expandPermission(
+    permission: Permission,
+    entities: SQLEntities,
+  ): SQLDirectPrivilege[] {
+    const base = {
+      actor: permission.user.name,
+      type: permission.type,
+      privilege: permission.privilege,
+      grantOption: false,
+    };
+
+    switch (permission.type) {
+      case "schema":
+        return [{ ...base, schema: permission.schema.name }];
+      case "table": {
+        const item = {
+          ...base,
+          schema: permission.table.schema,
+          name: permission.table.name,
+        };
+        if (isTrueClause(permission.columnClause)) {
+          return [item];
+        }
+        const table = entities.tables.find(
+          (metadata) =>
+            metadata.table.schema === permission.table.schema &&
+            metadata.table.name === permission.table.name,
+        );
+        return (table?.columns ?? [])
+          .filter((column) =>
+            this.evalColumnQuery(permission.columnClause, column),
+          )
+          .map((column) => ({ ...item, column }));
+      }
+      case "view":
+        return [
+          {
+            ...base,
+            schema: permission.view.schema,
+            name: permission.view.name,
+          },
+        ];
+      case "function":
+        return [
+          {
+            ...base,
+            schema: permission.function.schema,
+            name: permission.function.name,
+          },
+        ];
+      case "procedure":
+        return [
+          {
+            ...base,
+            schema: permission.procedure.schema,
+            name: permission.procedure.name,
+          },
+        ];
+      case "sequence":
+        return [
+          {
+            ...base,
+            schema: permission.sequence.schema,
+            name: permission.sequence.name,
+          },
+        ];
+    }
+  }
+
+  private directPrivilegeKey(privilege: SQLDirectPrivilege): string {
+    return JSON.stringify([
+      privilege.actor,
+      privilege.type,
+      privilege.schema,
+      privilege.name ?? null,
+      privilege.privilege,
+      privilege.column ?? null,
+      privilege.grantOption,
+    ]);
+  }
+
+  private directPrivilegeQuery(
+    operation: "GRANT" | "REVOKE",
+    privilege: SQLDirectPrivilege,
+  ): string {
+    const privilegeName = `${privilege.privilege}${
+      privilege.column ? ` (${this.quoteIdentifier(privilege.column)})` : ""
+    }`;
+    let object: string;
+    switch (privilege.type) {
+      case "schema":
+        object = `SCHEMA ${this.quoteIdentifier(privilege.schema)}`;
+        break;
+      case "table":
+      case "view":
+        object = `TABLE ${this.quoteIdentifier(
+          privilege.schema,
+        )}.${this.quoteIdentifier(privilege.name!)}`;
+        break;
+      case "function":
+        object = `FUNCTION ${this.quoteIdentifier(
+          privilege.schema,
+        )}.${this.quoteIdentifier(privilege.name!)}`;
+        break;
+      case "procedure":
+        object = `PROCEDURE ${this.quoteIdentifier(
+          privilege.schema,
+        )}.${this.quoteIdentifier(privilege.name!)}`;
+        break;
+      case "sequence":
+        object = `SEQUENCE ${this.quoteIdentifier(
+          privilege.schema,
+        )}.${this.quoteIdentifier(privilege.name!)}`;
+        break;
+    }
+    const preposition = operation === "GRANT" ? "TO" : "FROM";
+    return `${operation} ${privilegeName} ON ${object} ${preposition} ${this.quoteIdentifier(
+      privilege.actor,
+    )}${operation === "REVOKE" ? " CASCADE" : ""};`;
   }
 
   private async loadSqlFile(
@@ -416,7 +650,9 @@ export class PostgresBackend implements SQLBackend {
         const policiesToDrop = entities.rlsPolicies.filter(
           (policy) =>
             policy.permissive === "RESTRICTIVE" &&
-            policy.users.some((user) => userNames.has(user.name)),
+            [...policy.users, ...policy.groups].some((actor) =>
+              userNames.has(actor.name),
+            ),
         );
         const dropQueries = policiesToDrop.map(
           (policy) =>
@@ -426,7 +662,73 @@ export class PostgresBackend implements SQLBackend {
 
         return revokeQueries.concat(dropQueries);
       },
-      compileGrantQueries: (permissions, entities) => {
+      reconcilePermissionsQueries: (users, permissions, entities) => {
+        const actorNames = new Set(users.map((user) => user.name));
+        const desiredPrivileges = permissions.flatMap((permission) =>
+          this.expandPermission(permission, entities),
+        );
+        const desiredByKey = new Map(
+          desiredPrivileges.map((privilege) => [
+            this.directPrivilegeKey(privilege),
+            privilege,
+          ]),
+        );
+        const currentPrivileges = (entities.directPrivileges ?? []).filter(
+          (privilege) => actorNames.has(privilege.actor),
+        );
+        const currentByKey = new Map(
+          currentPrivileges.map((privilege) => [
+            this.directPrivilegeKey(privilege),
+            privilege,
+          ]),
+        );
+
+        const revokeRoleQueries = (entities.roleMemberships ?? [])
+          .filter((membership) => actorNames.has(membership.member))
+          .map(
+            (membership) =>
+              `REVOKE ${this.quoteIdentifier(
+                membership.role,
+              )} FROM ${this.quoteIdentifier(membership.member)};`,
+          );
+        const revokePrivilegeQueries = Array.from(currentByKey)
+          .filter(([key]) => !desiredByKey.has(key))
+          .map(([, privilege]) =>
+            this.directPrivilegeQuery("REVOKE", privilege),
+          );
+        const revokedGrantOption = Array.from(currentByKey)
+          .filter(([key]) => !desiredByKey.has(key))
+          .some(([, privilege]) => privilege.grantOption);
+        const grantPrivilegeQueries = Array.from(desiredByKey)
+          .filter(([key]) => revokedGrantOption || !currentByKey.has(key))
+          .map(([, privilege]) =>
+            this.directPrivilegeQuery("GRANT", privilege),
+          );
+
+        const policiesToDrop = entities.rlsPolicies.filter(
+          (policy) =>
+            policy.permissive === "RESTRICTIVE" &&
+            [...policy.users, ...policy.groups].some((actor) =>
+              actorNames.has(actor.name),
+            ),
+        );
+        const dropPolicyQueries = policiesToDrop.map(
+          (policy) =>
+            `DROP POLICY ${this.quoteIdentifier(policy.name)} ` +
+            `ON ${this.quoteQualifiedName(policy.table)};`,
+        );
+
+        return revokeRoleQueries.concat(
+          revokePrivilegeQueries,
+          dropPolicyQueries,
+          grantPrivilegeQueries,
+        );
+      },
+      compileGrantQueries: (
+        permissions,
+        entities,
+        includePermissionGrants = true,
+      ) => {
         const metaByTable = Object.fromEntries(
           entities.tables.map((table) => [
             this.quoteQualifiedName(table.table),
@@ -591,9 +893,15 @@ export class PostgresBackend implements SQLBackend {
 
         const rlsQueries = enableRlsQueries.concat(addDefaultPolicyQueries);
 
-        const individualGrantQueries = permissions.flatMap((perm) =>
-          this.compileGrantQuery(perm, entities),
-        );
+        const individualGrantQueries = includePermissionGrants
+          ? permissions.flatMap((perm) =>
+              this.compileGrantQuery(perm, entities),
+            )
+          : permissions.flatMap((perm) =>
+              this.compileGrantQuery(perm, entities).filter(
+                (query) => !query.startsWith("GRANT "),
+              ),
+            );
 
         return rlsQueries.concat(individualGrantQueries);
       },

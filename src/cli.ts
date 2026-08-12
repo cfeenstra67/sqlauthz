@@ -6,7 +6,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import { compileQuery } from "./api.js";
 import { OsoError } from "./oso.js";
-import { UserRevokePolicy } from "./parser.js";
+import type { UserRevokePolicy } from "./parser.js";
 import { PostgresBackend } from "./pg-backend.js";
 import { PathNotFound, strictGlob } from "./utils.js";
 
@@ -91,6 +91,13 @@ async function main() {
         "queries will be allowed",
       default: false,
     })
+    .option("reconcile", {
+      type: "boolean",
+      description:
+        "Only grant and revoke direct privileges that differ from the " +
+        "desired configuration, reducing permission audit log volume.",
+      default: false,
+    })
     .option("var", {
       type: "string",
       array: true,
@@ -112,14 +119,15 @@ async function main() {
     .option("dry-run", {
       type: "boolean",
       description:
-        "Print full SQL query that would be executed; --dry-run-short only " +
-        "includes grants.",
+        "Print full SQL query that would be executed; --dry-run-short omits " +
+        "setup, teardown, and transaction statements.",
       conflicts: ["dry-run-short"],
     })
     .option("dry-run-short", {
       type: "boolean",
       description:
-        "Print GRANT statements that would be generated without running them.",
+        "Print permission statements without setup, teardown, or transaction " +
+        "statements, without running them.",
       conflicts: ["dry-run"],
     })
     .option("debug", {
@@ -229,15 +237,21 @@ async function main() {
   }
 
   const backend = new PostgresBackend(client);
+  let transactionStarted = false;
 
   try {
+    if (args.reconcile && !args.dryRun && !args.dryRunShort) {
+      await client.query("BEGIN;");
+      transactionStarted = true;
+    }
     const query = await compileQuery({
       backend,
       paths: rulesPaths,
       userRevokePolicy,
       allowAnyActor: args.allowAnyActor,
       includeSetupAndTeardown: !args.dryRunShort,
-      includeTransaction: !args.dryRunShort,
+      includeTransaction: !args.dryRunShort && !transactionStarted,
+      reconcile: args.reconcile,
       debug: args.debug,
       vars: { var: vars },
     });
@@ -245,6 +259,10 @@ async function main() {
       console.error("Unable to compile permission queries. Errors:");
       for (const error of query.errors) {
         console.error(error);
+      }
+      if (transactionStarted) {
+        await client.query("ROLLBACK;");
+        transactionStarted = false;
       }
       process.exit(1);
     }
@@ -258,9 +276,19 @@ async function main() {
       return;
     }
 
-    await client.query(query.query);
+    if (query.query) {
+      await client.query(query.query);
+    }
+    if (transactionStarted) {
+      await client.query("COMMIT;");
+      transactionStarted = false;
+    }
     console.log("Permissions updated successfully");
   } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK;");
+      transactionStarted = false;
+    }
     if (error instanceof OsoError) {
       console.error("Error loading rules:", error);
     } else {
