@@ -24,7 +24,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org/'
       # PNPM stuff
       - name: Install pnpm
-        uses: pnpm/action-setup@v6.0.10
+        uses: pnpm/action-setup@v6.0.8
         id: pnpm-install
         with:
           version: 10
