@@ -17,14 +17,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org/'
       # PNPM stuff
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.0.10
         id: pnpm-install
         with:
           version: 10
@@ -33,7 +33,7 @@ jobs:
         id: pnpm-cache
         run: |
           echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6.1.0
         name: Setup pnpm cache
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
@@ -43,7 +43,7 @@ jobs:
       - name: Install node dependencies
         run: pnpm install --frozen-lockfile
       - name: Create release pull request or publish
-        uses: changesets/action@v1
+        uses: changesets/action@v2.0.0
         with:
           publish: pnpm release
         env:

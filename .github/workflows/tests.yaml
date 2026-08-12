@@ -14,16 +14,24 @@ jobs:
       matrix:
         include:
           - node-version: "18"
-            postgres-version: "16"
+            postgres-version: "18"
           - node-version: "20"
+            postgres-version: "18"
+          - node-version: "22"
+            postgres-version: "18"
+          - node-version: "24"
+            postgres-version: "18"
+          - node-version: "24"
+            postgres-version: "17"
+          - node-version: "24"
             postgres-version: "16"
-          - node-version: "20"
+          - node-version: "24"
             postgres-version: "15"
-          - node-version: "20"
+          - node-version: "24"
             postgres-version: "14"
-          - node-version: "20"
+          - node-version: "24"
             postgres-version: "13"
-          - node-version: "20"
+          - node-version: "24"
             postgres-version: "12"
 
     services:
@@ -42,22 +50,22 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
       # PNPM stuff
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.0.10
         id: pnpm-install
         with:
-          version: 8
+          version: 10
           run_install: false
       - name: Get pnpm store directory
         id: pnpm-cache
         run: |
           echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6.1.0
         name: Setup pnpm cache
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
