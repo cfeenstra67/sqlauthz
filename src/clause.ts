@@ -2,7 +2,7 @@ import { Variable } from "oso";
 import { Expression } from "oso/dist/src/Expression.js";
 import { Pattern } from "oso/dist/src/Pattern.js";
 import { Predicate } from "oso/dist/src/Predicate.js";
-import { PolarOperator } from "oso/dist/src/types.js";
+import type { PolarOperator } from "oso/dist/src/types.js";
 import { arrayProduct } from "./utils.js";
 
 export interface Literal {

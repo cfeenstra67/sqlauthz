@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Oso, Variable } from "oso";
 import { Predicate } from "oso/dist/src/Predicate.js";
-import { Value, valueToClause } from "./clause.js";
+import { type Value, valueToClause } from "./clause.js";
 import {
   FunctionPrivileges,
   ProcedurePrivileges,
-  SQLFunction,
+  type SQLFunction,
   SchemaPrivileges,
   SequencePrivileges,
   TablePrivileges,

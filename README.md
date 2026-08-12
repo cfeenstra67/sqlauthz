@@ -75,7 +75,7 @@ You may not want to install it as a development dependency if you plan on using 
 
 ## Compatilibity
 
-`sqlauthz` has automated testing in place and is compatible with node 18-24, and PostgreSQL versions 12-18. It may be compatible with older versions of either, but it has not been tested.
+`sqlauthz` has automated testing in place and is compatible with node 20-24, and PostgreSQL versions 12-18. It may be compatible with older versions of either, but it has not been tested.
 
 ## CLI
 

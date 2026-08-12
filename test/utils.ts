@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import pg from "pg";
-import { CompileQueryArgs, compileQuery } from "../src/api.js";
-import { CreateOsoArgs } from "../src/oso.js";
+import { type CompileQueryArgs, compileQuery } from "../src/api.js";
+import type { CreateOsoArgs } from "../src/oso.js";
 import { PostgresBackend } from "../src/pg-backend.js";
 
 const TestDir = url.fileURLToPath(new URL(".", import.meta.url));
