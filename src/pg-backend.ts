@@ -12,7 +12,6 @@ import {
   evaluateClause,
   isTrueClause,
   normalizeClauseForComparison,
-  parseSqlClause,
   simpleEvaluator,
 } from "./clause.js";
 import { VERSION } from "./constants.js";
@@ -37,6 +36,7 @@ import {
   type TablePermission,
   type ViewPermission,
 } from "./sql.js";
+import { parseSqlClause } from "./sql-clause-parser.js";
 import { valueToSqlLiteral } from "./utils.js";
 
 const ProjectDir = url.fileURLToPath(new URL(".", import.meta.url));
