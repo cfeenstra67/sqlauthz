@@ -1,6 +1,6 @@
 # sqlauthz - Declarative permissions management for PostgreSQL
 
-`sqlauthz` allows you to manage your permissions in PostgresSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
+`sqlauthz` allows you to manage your permissions in PostgreSQL in a **declarative** way using simple rules written in the [Polar](https://www.osohq.com/docs/reference/polar/foundations) language. Polar is a language designed by [Oso](https://www.osohq.com/) specifically for writing authorization rules, so its syntax is a great fit for declaring permissions. As an example of what this might look like, see the examples below:
 
 ```polar
 # Give `user1` the `USAGE` permission on schema `myschema`;
@@ -24,7 +24,7 @@ isInTestGroup(user) if user in ["user2", "user3"];
 isInTestGroup("user4");
 ```
 
-Currently `sqlauthz` support PostgreSQL as a backend, and it allows you to define:
+Currently `sqlauthz` supports PostgreSQL as a backend, and it allows you to define:
 
 - Schema permissions
 - Table permissions **including column and row-level security**
@@ -37,10 +37,11 @@ To get started, check out the [Table of Contents](#table-of-contents) below.
 ## Table of Contents
 
 - [Installation](#installation)
-- [Compatibility](#compatilibity)
+- [Compatibility](#compatibility)
 - [CLI](#cli)
     - [CLI Configuration](#cli-configuration)
     - [User revoke strategies](#user-revoke-strategies)
+    - [Incremental privilege reconciliation](#incremental-privilege-reconciliation)
 - [Using `sqlauthz` as a library](#using-sqlauthz-as-a-library)
 - [Writing rules](#writing-rules)
     - [Using SQL functions in row-level security clauses](#using-sql-functions-in-row-level-security-clauses)
@@ -73,7 +74,7 @@ pnpm add -D sqlauthz
 ```
 You may not want to install it as a development dependency if you plan on using it [as a library](#using-sqlauthz-as-a-library) within your application.
 
-## Compatilibity
+## Compatibility
 
 `sqlauthz` has automated testing in place and is compatible with node 20-24, and PostgreSQL versions 12-18. It may be compatible with older versions of either, but it has not been tested.
 
@@ -117,19 +118,24 @@ _NOTE_: Environment variables will be loaded from your `.env` file and used as a
 - Command line args
 - Environment variables
 - The `sqlauthz` key in `package.json`
-You can disable the loading of environment variables from you `.env` file by setting the `NO_DOTENV` environment variable to any truthy value.
+You can disable the loading of environment variables from your `.env` file by setting the `NO_DOTENV` environment variable to any truthy value.
 
 ### User revoke strategies
 
-The intent of `sqlauthz` is the after you apply your permission rules, they will define the entire set of permissions for a user. Before `sqlauthz` applies new permissions, it revokes all permissions from a set of users first. It both revokes and grants the permissions as part of the same transaction, however, so in practice this does not lead to any "downtime" where a user has no permissions.
+The intent of `sqlauthz` is that after you apply your permission rules, they will define the entire set of permissions for a user. Before `sqlauthz` applies new permissions, it revokes all permissions from a set of users first. It both revokes and grants the permissions as part of the same transaction, however, so in practice this does not lead to any "downtime" where a user has no permissions.
 
 It's possible that you may not want to control the permissions of all of your users. This is particularly true if you're just trying `sqlauthz` out or adopting it incrementally. To allow you to use `sqlauthz` in a way that works for your use-case, there are three different "user revoke strategies" in `sqlauthz`. A "user revoke strategy" determines what users to revoke permissions from before granting permissions. The three strategies are as follows:
 
-- `referenced` (default) - Any user who would be granted a permission by your rules will have all of their permissions revoked beforehand. This has the benefit of only affecting users who reference in your rules, but it can be dangerous when used in conjunction with `allowAnyActor`. By default, this is enabled and `allowAnyActor` is disabled. Another downside of this strategy is that **if you reference a particular user, apply permissions, then remove the rules that grant permissions to that user, the permissions will not be removed the next time you update permissions**.
-- `all` - Revoke permissions from all non-superusers users before granting permissions. This has the benefit of being the most secure, as it ensures that your rules define the entire set of permissions for non-superusers in your database. It fixes the issue with the `referenced` strategy that removing rules for a particular user will revoke them the next time you apply your permissions, with the tradeoff that if you choose this strategy, you must manage all of your users' permissions this way.
+- `referenced` (default) - Any user who would be granted a permission by your rules will have all of their permissions revoked beforehand. This has the benefit of only affecting users who are referenced in your rules, but it can be dangerous when used in conjunction with `allowAnyActor`. By default, this is enabled and `allowAnyActor` is disabled. Another downside of this strategy is that **if you reference a particular user, apply permissions, then remove the rules that grant permissions to that user, the permissions will not be removed the next time you update permissions**.
+- `all` - Revoke permissions from all non-superusers before granting permissions. This has the benefit of being the most secure, as it ensures that your rules define the entire set of permissions for non-superusers in your database. It fixes the issue with the `referenced` strategy that removing rules for a particular user will revoke them the next time you apply your permissions, with the tradeoff that if you choose this strategy, you must manage all of your users' permissions this way.
 - `users` - Define a specific list of users whose permissions should be revoked before granting permissions. This is a balance between the `referenced` and `all` strategies if you have a specific set of users who you'd like to manage the permissions for using `sqlauthz`.
 
 _NOTE_: Superuser's permissions cannot be limited using `sqlauthz`, because they cannot be limited by PostgreSQL permissions in general. They are ignored by `sqlauthz` entirely, and will never have permissions granted to or revoked from them.
+
+_NOTE_: To avoid unintended behavior, `sqlauthz` is relatively strict about referencing actors. Specifically:
+- Referencing a user or group explicitly in rules that does not exist will cause an error.
+- Including a user that doesn't exist in a `user` user revoke strategy will cause an error.
+- Attempting to grant permissions to a user outside the scope of the user revoke strategy will cause an error.
 
 ### Incremental privilege reconciliation
 
@@ -138,11 +144,6 @@ Passing `--reconcile` changes how direct schema, table, column, view, function, 
 Reconciliation remains transactional. When using the CLI, current privileges are read and the resulting changes are applied within the same transaction. As with database migrations, permission changes made concurrently by another process can race with reconciliation, so permission-management processes should not run concurrently.
 
 The option does not change the functional treatment of role memberships or RLS policies. Existing role memberships are revoked from managed users, while restrictive RLS policies continue to use the existing drop-and-recreate behavior. Consequently, configurations using restrictive RLS policies may still emit policy statements when reapplied.
-
-_NOTE_: To avoid unintended behavior, `sqlauthz` is relatively strict about referencing actors. Specifically:
-- Referencing a user or group explicitly in rules that does not exist will cause an error.
-- Including a user that doesn't exist in a `user` user revoke strategy will cause an error.
-- Attempting to grant permissions to a user outside the scope of the user revoke strategy will cause an error.
 
 ## Using `sqlauthz` as a library
 
@@ -174,7 +175,7 @@ if (result.type === 'success') {
 
 await client.end();
 ```
-The libary is quite simple, so if you need to do something different you can likely read the source code to figure out how to do it. If you have any issues, feel free to [create an issue](https://github.com/cfeenstra67/sqlauthz/issues/new).
+The library is quite simple, so if you need to do something different you can likely read the source code to figure out how to do it. If you have any issues, feel free to [create an issue](https://github.com/cfeenstra67/sqlauthz/issues/new).
 
 See the [`CompileQueryArgs`](https://github.com/cfeenstra67/sqlauthz/blob/main/src/api.ts#L6) type for a full definition of arguments that can be passed to `compileQuery()`. For the most part they are 1-1 with CLI arguments, with a few minor differences:
 - `paths` does not resolve globs
@@ -225,7 +226,7 @@ Top-level rules are written via `allow(actor, action, resource)` declarations. E
     - **sequences** - Can be compared directly with strings e.g. `resource == "myschema.mysequence"`
         - `resource.type` - Equal to `"sequence"` e.g. `resource.type == "sequence"`
         - `resource.name` - The sequence name, without schema e.g. `resource.name == "somesequence"`
-        - `resource.schema` - The schem aname, e.g. `resource.shcmea == "someschema"`
+        - `resource.schema` - The schema name, e.g. `resource.schema == "someschema"`
 
 For a full explanation of polar semantics, you can read the [Polar Documentation](https://www.osohq.com/docs/reference/polar/foundations).
 
@@ -259,7 +260,7 @@ allow("bob", "select", table)
     and table.row.id == sql.my.function(table.row.owner_id);
 ```
 
-Note that while this should work fine for simple row-level security policies, but if you try to do something arbitrary complex you may run into issues. Please [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) if you do. One known limitation is that operating on a literal and a function call with a column on an input will require you to use the `sql.lit` helper function to declare the literal:
+Note that while this should work fine for simple row-level security policies, if you try to do something arbitrarily complex you may run into issues. Please [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) if you do. One known limitation is that operating on a literal and a function call with a column as an input will require you to use the `sql.lit` helper function to declare the literal:
 ```polar
 allow("bob", "select", table)
     if table == "my.table"
@@ -307,7 +308,7 @@ This can also be specified on the command line. See the [CLI Configuration](#cli
 
 ## Examples
 
-These are a limited set of examples on how you can express certain rule sets in `sqlauthz` using polar. Note that the possiblities are nearly endless, and you should learn about the [Polar language](https://www.osohq.com/docs/reference/polar/foundations) if you want to have a firm grasp on everything that's possible. You can also check out the [tests](https://github.com/cfeenstra67/sqlauthz/tree/main/test/rules), which includes many minimal examples of rules. If you're not sure if something's possible or how to do it, always feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and I'll be happy to help you our and/or augment these examples with what you're looking for.
+These are a limited set of examples of how you can express certain rule sets in `sqlauthz` using Polar. Note that the possibilities are nearly endless, and you should learn about the [Polar language](https://www.osohq.com/docs/reference/polar/foundations) if you want to have a firm grasp on everything that's possible. You can also check out the [tests](https://github.com/cfeenstra67/sqlauthz/tree/main/test/rules), which include many minimal examples of rules. If you're not sure if something's possible or how to do it, always feel free to [open an issue](https://github.com/cfeenstra67/sqlauthz/issues/new) and I'll be happy to help you out and/or augment these examples with what you're looking for.
 
 ### A complete example
 
@@ -440,7 +441,7 @@ allow("bob", "select", resource)
 
 ## Integrating into a production application
 
-If you're considering integrating `sqlauthz` into a production application, there probably at least two important things you'll want to consider:
+If you're considering integrating `sqlauthz` into a production application, there are probably at least two important things you'll want to consider:
 
 - How to integrate `sqlauthz` into your CI/CD pipeline
 - How to integrate `sqlauthz` into your tests
@@ -519,9 +520,9 @@ And you will be using a role whose permissions match your production database ro
 
 There are a couple of relevant behaviors to be aware of when using `sqlauthz` for row-level security policies:
 - If you write a rule that makes use of row-level security (i.e. using `table.row.<col>` in one of your rules) and row-level security is not enabled for that table, **it will be enabled on that table**. This should not affect existing users because by default `sqlauthz` will add an empty "permissive" policy for the table, so any users not targeted in your `sqlauthz` rules will still be able to access the table normally.
-- `sqlauthz` will drop existing "restrictive" RLS policies before creating new ones based on your Polar rules. This means that if you add a "restrictive" policy manually, it may be dropped next time you run `sqlauthz`. This only applies where both of the following conditions where the policy is both:
+- `sqlauthz` will drop existing "restrictive" RLS policies before creating new ones based on your Polar rules. This means that if you add a "restrictive" policy manually, it may be dropped next time you run `sqlauthz`. This only applies when both of the following conditions are met:
     - on a table where you are granting a permission to any user using RLS
-    - targetting a user in your [user revoke strategy](#user-revoke-strategies)
+    - targeting a user in your [user revoke strategy](#user-revoke-strategies)
 - `sqlauthz` will add an empty "permissive" policy that applies to all users when it enables row-level security on a table. However, when row-level security is already enabled on a table, it will only create "missing" permissive policies. A permissive policy is created for any user and permission that is granted access to a given table where none exist, regardless of whether their access is limited with any restrictive RLS policies. This only happens to tables where RLS is "required" meaning that your polar rules specify at least one permission that requires a RLS policy on that table AND tables where RLS is already enabled.
 
 For more information on RLS in Postgres and to learn more about "permissive" and "restrictive" policies, check out [the docs](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
@@ -548,8 +549,8 @@ _NOTE_: For `sqlauthz`, Oso Cloud is not a useful abstraction and unless somethi
 The primary motivation for creating `sqlauthz` was that although PostgreSQL supports fine-grained permissions including row and column-level security, I've always found it difficult to take advantage of these features in real production systems.
 
 The difficult thing about fully making use of fine-grained permissions is mainly maintaining them as the number of roles and database objects grow, which tends to happen at a pretty rapid clip in many actively developed applications. Using most SQL migration tools, either:
-- You do define your objects declaratively (e.g. many ORMs) and the tool generates your SQL scripts for you, but typically these tools only support operations tables.
-- Your write your SQL scripts yourself, in which case it can be very difficult to understand the current state of your database as the number of scripts grow.
+- You do define your objects declaratively (e.g. many ORMs) and the tool generates your SQL scripts for you, but typically these tools only support operations on tables.
+- You write your SQL scripts yourself, in which case it can be very difficult to understand the current state of your database as the number of scripts grows.
 
 Declarative configuration is an excellent fit for maintaining complex systems as they change over time because the maintainer need only decide the state they want their system to be in, not the steps needed to get there. This is a very popular feature of ORMs, where they inspect models declared in code and generate SQL migrations scripts to update the database to match the state of the declared models. Similarly, infrastructure-as-code tools take a declarative configuration of desired cloud resources and make API calls to update your cloud resources to the desired state.
 
@@ -561,7 +562,7 @@ Declarative configuration is an excellent fit for maintaining complex systems as
 
 - Currently only supports permissions on tables, views, schemas, functions, procedures, and sequences (not types, languages, large objects, etc.).
 
-- **`sqlauthz` never alters default privileges.** Let me know via opening an issue if this is something you're interested in. In particular, by default all users have EXECUTE privleges on functions and procedures. To change this, you can use the following one-time query:
+- **`sqlauthz` never alters default privileges.** Let me know via opening an issue if this is something you're interested in. In particular, by default all users have EXECUTE privileges on functions and procedures. To change this, you can use the following one-time query:
 ```sql
 ALTER DEFAULT PRIVILEGES
 REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
@@ -578,7 +579,7 @@ REVOKE ALL PRIVILEGES ON ROUTINES FROM PUBLIC;
 
 - Currently there is no way to use joins or select from other tables in row-level security queries.
 
-- At the moment will only grant permissions on objects that exist in the database at the time of applying permissions. For example, if you write a rule that allows access to all objects within a schema, `sqlauthz` will generate a `GRANT` query for each one of those objects individual rather than one with `FOR ALL TABLES IN SCHEMA <schema>`.
+- At the moment, it will only grant permissions on objects that exist in the database at the time of applying permissions. For example, if you write a rule that allows access to all objects within a schema, `sqlauthz` will generate a `GRANT` query for each of those objects individually rather than one with `FOR ALL TABLES IN SCHEMA <schema>`.
 
 ## Support and Feature Requests
 

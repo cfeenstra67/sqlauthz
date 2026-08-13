@@ -230,11 +230,6 @@ export function constructFullQuery({
   }
 
   if (reconcile) {
-    if (!context.reconcilePermissionsQueries) {
-      throw new Error(
-        "The configured SQL backend does not support reconciliation",
-      );
-    }
     const reconcileQueries = context.reconcilePermissionsQueries(
       revokeUsers,
       permissions,
@@ -247,12 +242,12 @@ export function constructFullQuery({
     );
   }
 
-  const grantQueries = context.compileGrantQueries(
-    permissions,
-    entities,
-    !reconcile,
-  );
-  queryParts.push(...grantQueries);
+  queryParts.push(...context.compileRlsQueries(permissions, entities));
+  if (!reconcile) {
+    queryParts.push(
+      ...context.compilePrivilegeGrantQueries(permissions, entities),
+    );
+  }
 
   if (context.teardownQuery && includeSetupAndTeardown && !reconcile) {
     queryParts.push(context.teardownQuery);

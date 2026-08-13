@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import assert from "node:assert";
 import pg from "pg";
 import { type CompileQueryArgs, compileQuery } from "../src/api.js";
 import type { CreateOsoArgs } from "../src/oso.js";
@@ -147,6 +148,14 @@ export async function setupEnv(
       if (result.type === "error") {
         throw new Error(
           `Parse error: ${JSON.stringify(result.errors, null, 2)}`,
+        );
+      }
+
+      if (opts?.reconcile && i > 0) {
+        assert.equal(
+          result.query,
+          "BEGIN;\nCOMMIT;",
+          `Reconciliation iteration ${i + 1} was not a no-op`,
         );
       }
 

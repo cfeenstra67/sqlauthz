@@ -24,10 +24,11 @@ it("keeps the reconciliation plan in short output", () => {
       'REVOKE SELECT ON TABLE "test"."articles" FROM "user" CASCADE;',
       'GRANT SELECT ON TABLE "test"."articles" TO "user";',
     ],
-    compileGrantQueries: () => [
+    compileRlsQueries: () => [
       'ALTER TABLE "test"."articles" ENABLE ROW LEVEL SECURITY;',
       'CREATE POLICY "select_user" ON "test"."articles";',
     ],
+    compilePrivilegeGrantQueries: () => [],
   };
 
   const query = constructFullQuery({
@@ -56,9 +57,11 @@ it("omits only replacement setup and teardown from short output", () => {
     removeAllPermissionsFromActorsQueries: () => [
       "SELECT revoke_all_from_role('user');",
     ],
-    compileGrantQueries: () => [
+    compileRlsQueries: () => [
       'ALTER TABLE "test"."articles" ENABLE ROW LEVEL SECURITY;',
       'CREATE POLICY "select_user" ON "test"."articles";',
+    ],
+    compilePrivilegeGrantQueries: () => [
       'GRANT SELECT ON TABLE "test"."articles" TO "user";',
     ],
   };
@@ -103,11 +106,7 @@ it("drops restrictive policies targeting managed groups", async () => {
   const backend = new PostgresBackend({} as pg.Client);
   const context = await backend.getContext(groupEntities);
 
-  const queries = context.reconcilePermissionsQueries?.(
-    [group],
-    [],
-    groupEntities,
-  );
+  const queries = context.reconcilePermissionsQueries([group], [], groupEntities);
 
   assert.deepEqual(queries, [
     'DROP POLICY "select_editors" ON "test"."articles";',

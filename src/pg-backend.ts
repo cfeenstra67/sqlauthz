@@ -486,7 +486,10 @@ export class PostgresBackend implements SQLBackend {
           schema: permission.table.schema,
           name: permission.table.name,
         };
-        if (isTrueClause(permission.columnClause)) {
+        if (
+          isTrueClause(permission.columnClause) ||
+          !["SELECT", "INSERT", "UPDATE"].includes(permission.privilege)
+        ) {
           return [item];
         }
         const table = entities.tables.find(
@@ -724,11 +727,7 @@ export class PostgresBackend implements SQLBackend {
           grantPrivilegeQueries,
         );
       },
-      compileGrantQueries: (
-        permissions,
-        entities,
-        includePermissionGrants = true,
-      ) => {
+      compileRlsQueries: (permissions, entities) => {
         const metaByTable = Object.fromEntries(
           entities.tables.map((table) => [
             this.quoteQualifiedName(table.table),
@@ -891,19 +890,23 @@ export class PostgresBackend implements SQLBackend {
           }),
         );
 
-        const rlsQueries = enableRlsQueries.concat(addDefaultPolicyQueries);
+        const restrictivePolicyQueries = permissions.flatMap((permission) =>
+          this.compileGrantQuery(permission, entities).filter(
+            (query) => !query.startsWith("GRANT "),
+          ),
+        );
 
-        const individualGrantQueries = includePermissionGrants
-          ? permissions.flatMap((perm) =>
-              this.compileGrantQuery(perm, entities),
-            )
-          : permissions.flatMap((perm) =>
-              this.compileGrantQuery(perm, entities).filter(
-                (query) => !query.startsWith("GRANT "),
-              ),
-            );
-
-        return rlsQueries.concat(individualGrantQueries);
+        return enableRlsQueries.concat(
+          addDefaultPolicyQueries,
+          restrictivePolicyQueries,
+        );
+      },
+      compilePrivilegeGrantQueries: (permissions, entities) => {
+        return permissions.flatMap((permission) =>
+          this.compileGrantQuery(permission, entities).filter((query) =>
+            query.startsWith("GRANT "),
+          ),
+        );
       },
     };
   }

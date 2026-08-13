@@ -283,7 +283,11 @@ async function main() {
       await client.query("COMMIT;");
       transactionStarted = false;
     }
-    console.log("Permissions updated successfully");
+    if (args.reconcile && !query.query) {
+      console.log("Permissions are up to date");
+    } else {
+      console.log("Permissions updated successfully");
+    }
   } catch (error) {
     if (transactionStarted) {
       await client.query("ROLLBACK;");

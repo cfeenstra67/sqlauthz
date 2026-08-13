@@ -36,15 +36,18 @@ export interface SQLBackendContext {
     users: SQLActor[],
     entities: SQLEntities,
   ) => string[];
-  reconcilePermissionsQueries?: (
+  reconcilePermissionsQueries: (
     users: SQLActor[],
     permissions: Permission[],
     entities: SQLEntities,
   ) => string[];
-  compileGrantQueries: (
+  compilePrivilegeGrantQueries: (
     permissions: Permission[],
     entities: SQLEntities,
-    includePermissionGrants?: boolean,
+  ) => string[];
+  compileRlsQueries: (
+    permissions: Permission[],
+    entities: SQLEntities,
   ) => string[];
 }
 
