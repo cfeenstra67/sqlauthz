@@ -17,6 +17,32 @@ const entities: SQLEntities = {
   sequences: [],
 };
 
+it("fetches reconciliation metadata only when requested", async () => {
+  const queries: string[] = [];
+  const client = {
+    query: async (query: string) => {
+      queries.push(query);
+      return { rows: [] };
+    },
+  } as unknown as pg.Client;
+  const backend = new PostgresBackend(client);
+
+  const replacementEntities = await backend.fetchEntities();
+  assert.equal(replacementEntities.directPrivileges, undefined);
+  assert.equal(replacementEntities.roleMemberships, undefined);
+  assert.equal(queries.some((query) => query.includes("aclexplode")), false);
+  assert.equal(queries.some((query) => query.includes("pg_auth_members")), false);
+
+  queries.length = 0;
+  const reconciliationEntities = await backend.fetchEntities({
+    reconcile: true,
+  });
+  assert.deepEqual(reconciliationEntities.directPrivileges, []);
+  assert.deepEqual(reconciliationEntities.roleMemberships, []);
+  assert.equal(queries.some((query) => query.includes("aclexplode")), true);
+  assert.equal(queries.some((query) => query.includes("pg_auth_members")), true);
+});
+
 it("keeps the reconciliation plan in short output", () => {
   const context: SQLBackendContext = {
     removeAllPermissionsFromActorsQueries: () => [],

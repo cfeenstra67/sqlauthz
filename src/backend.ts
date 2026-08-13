@@ -27,6 +27,10 @@ export interface SQLEntities {
   roleMemberships?: { role: string; member: string }[];
 }
 
+export interface FetchEntitiesOptions {
+  reconcile?: boolean;
+}
+
 export interface SQLBackendContext {
   setupQuery?: string;
   teardownQuery?: string;
@@ -54,7 +58,7 @@ export interface SQLBackendContext {
 }
 
 export interface SQLBackend {
-  fetchEntities: () => Promise<SQLEntities>;
+  fetchEntities: (options?: FetchEntitiesOptions) => Promise<SQLEntities>;
 
   getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
 }

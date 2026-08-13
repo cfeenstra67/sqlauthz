@@ -46,7 +46,7 @@ export async function compileQuery({
   reconcile,
 }: CompileQueryArgs): Promise<CompileQueryResult> {
   if (entities === undefined) {
-    entities = await backend.fetchEntities();
+    entities = await backend.fetchEntities({ reconcile });
   }
 
   const { oso, literalsContext } = await createOso({

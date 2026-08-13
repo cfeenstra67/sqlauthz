@@ -178,28 +178,6 @@ export function clausesEqual(clause1: Clause, clause2: Clause): boolean {
   return false;
 }
 
-export function normalizeClauseForComparison(clause: Clause): Clause {
-  return optimizeClause(
-    mapClauses(clause, (part) => {
-      if (part.type !== "function-call") {
-        return part;
-      }
-      if (
-        part.name === "cast" &&
-        part.args[0]?.type === "column" &&
-        part.args[1]?.type === "value" &&
-        part.args[1].value === "text"
-      ) {
-        return part.args[0];
-      }
-      return {
-        ...part,
-        schema: part.schema === "pg_catalog" ? "" : part.schema,
-      };
-    }),
-  );
-}
-
 function deduplicateClauses(clauses: readonly Clause[]): readonly Clause[] {
   if (clauses.length <= 1) {
     return clauses;

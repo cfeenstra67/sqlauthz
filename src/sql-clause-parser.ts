@@ -2,8 +2,32 @@ import type { PolarOperator } from "oso/dist/src/types.js";
 import {
   type Clause,
   type Value,
-  normalizeClauseForComparison,
+  mapClauses,
+  optimizeClause,
 } from "./clause.js";
+
+export function normalizeClauseForComparison(clause: Clause): Clause {
+  return optimizeClause(
+    mapClauses(clause, (part) => {
+      if (part.type !== "function-call") {
+        return part;
+      }
+      if (
+        part.name === "cast" &&
+        part.args[0]?.type === "column" &&
+        part.args[1]?.type === "value" &&
+        part.args[1].value === "text"
+      ) {
+        // PostgreSQL compares varchar columns through text operators in pg_policies.
+        return part.args[0];
+      }
+      return {
+        ...part,
+        schema: part.schema === "pg_catalog" ? "" : part.schema,
+      };
+    }),
+  );
+}
 
 type SqlToken =
   | { type: "identifier" | "string" | "number" | "operator"; value: string }

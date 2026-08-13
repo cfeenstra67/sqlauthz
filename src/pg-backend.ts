@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import type pg from "pg";
-import type { SQLBackend, SQLBackendContext, SQLEntities } from "./backend.js";
+import type {
+  FetchEntitiesOptions,
+  SQLBackend,
+  SQLBackendContext,
+  SQLEntities,
+} from "./backend.js";
 import {
   type Clause,
   type Literal,
@@ -11,7 +16,6 @@ import {
   clausesEqual,
   evaluateClause,
   isTrueClause,
-  normalizeClauseForComparison,
   simpleEvaluator,
 } from "./clause.js";
 import { VERSION } from "./constants.js";
@@ -36,7 +40,10 @@ import {
   type TablePermission,
   type ViewPermission,
 } from "./sql.js";
-import { parseSqlClause } from "./sql-clause-parser.js";
+import {
+  normalizeClauseForComparison,
+  parseSqlClause,
+} from "./sql-clause-parser.js";
 import { valueToSqlLiteral } from "./utils.js";
 
 const ProjectDir = url.fileURLToPath(new URL(".", import.meta.url));
@@ -46,7 +53,9 @@ const SqlDir = path.join(ProjectDir, "sql/pg");
 export class PostgresBackend implements SQLBackend {
   constructor(private readonly client: pg.Client) {}
 
-  async fetchEntities(): Promise<SQLEntities> {
+  async fetchEntities({
+    reconcile,
+  }: FetchEntitiesOptions = {}): Promise<SQLEntities> {
     const getUsers = () =>
       this.client.query<{ name: string; id: number }>(
         `
@@ -336,8 +345,8 @@ export class PostgresBackend implements SQLBackend {
       getPolicies(),
       getFunctionsAndProcedures(),
       getSequences(),
-      getDirectPrivileges(),
-      getRoleMemberships(),
+      reconcile ? getDirectPrivileges() : undefined,
+      reconcile ? getRoleMemberships() : undefined,
     ]);
 
     const tableItems: Record<string, SQLTableMetadata> = {};
@@ -439,7 +448,7 @@ export class PostgresBackend implements SQLBackend {
       });
     }
 
-    return {
+    const entities: SQLEntities = {
       users: Object.values(usersById),
       groups: Object.values(groupsByName),
       schemas: schemas.rows.map((row) => ({ type: "schema", name: row.name })),
@@ -453,9 +462,12 @@ export class PostgresBackend implements SQLBackend {
       functions,
       procedures,
       sequences: sequences.rows.map((row) => ({ type: "sequence", ...row })),
-      directPrivileges: directPrivileges.rows,
-      roleMemberships: roleMemberships.rows,
     };
+    if (directPrivileges && roleMemberships) {
+      entities.directPrivileges = directPrivileges.rows;
+      entities.roleMemberships = roleMemberships.rows;
+    }
+    return entities;
   }
 
   private quoteIdentifier(identifier: string): string {

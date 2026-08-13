@@ -3,9 +3,11 @@ import { it } from "node:test";
 import {
   type Clause,
   clausesEqual,
-  normalizeClauseForComparison,
 } from "../src/clause.js";
-import { parseSqlClause } from "../src/sql-clause-parser.js";
+import {
+  normalizeClauseForComparison,
+  parseSqlClause,
+} from "../src/sql-clause-parser.js";
 
 it("parses PostgreSQL-normalized policy expressions", () => {
   const desired: Clause = {
