@@ -46,8 +46,10 @@ export interface SQLBackendContext {
     entities: SQLEntities,
   ) => string[];
   compileRlsQueries: (
+    users: SQLActor[],
     permissions: Permission[],
     entities: SQLEntities,
+    reconcile: boolean,
   ) => string[];
 }
 

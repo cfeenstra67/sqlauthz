@@ -123,6 +123,57 @@ it("reconciles only changed direct privileges", async () => {
         type: "success",
         query: "BEGIN;\nCOMMIT;",
       });
+
+      const rls = await compile("basic-1");
+      assert.equal(rls.type, "success");
+      await databaseClient.query(rls.query);
+      const rlsUnchanged = await compile("basic-1");
+      assert.deepEqual(rlsUnchanged, {
+        type: "success",
+        query: "BEGIN;\nCOMMIT;",
+      });
+
+      await databaseClient.query(`
+        ALTER POLICY "select_${user1}" ON test.articles
+        USING (author = 'Someone Else')
+      `);
+      const rlsDrifted = await compile("basic-1");
+      assert.equal(rlsDrifted.type, "success");
+      assert.match(rlsDrifted.query, /DROP POLICY/);
+      assert.match(rlsDrifted.query, /CREATE POLICY/);
+      await databaseClient.query(rlsDrifted.query);
+
+      const rlsConverged = await compile("basic-1");
+      assert.deepEqual(rlsConverged, {
+        type: "success",
+        query: "BEGIN;\nCOMMIT;",
+      });
+
+      await databaseClient.query(`
+        ALTER POLICY "select_${user1}" ON test.articles
+        TO PUBLIC, ${user1}
+      `);
+      const rlsRolesDrifted = await compile("basic-1");
+      assert.equal(rlsRolesDrifted.type, "success");
+      assert.match(rlsRolesDrifted.query, /DROP POLICY/);
+      assert.match(rlsRolesDrifted.query, /CREATE POLICY/);
+      await databaseClient.query(rlsRolesDrifted.query);
+
+      await databaseClient.query(`
+        ALTER POLICY "update_${user1}" ON test.articles
+        WITH CHECK (author = 'Someone Else')
+      `);
+      const rlsCheckDrifted = await compile("basic-1");
+      assert.equal(rlsCheckDrifted.type, "success");
+      assert.match(rlsCheckDrifted.query, /DROP POLICY/);
+      assert.match(rlsCheckDrifted.query, /CREATE POLICY/);
+      await databaseClient.query(rlsCheckDrifted.query);
+
+      const rlsFullyConverged = await compile("basic-1");
+      assert.deepEqual(rlsFullyConverged, {
+        type: "success",
+        query: "BEGIN;\nCOMMIT;",
+      });
     } finally {
       await databaseClient.end();
     }

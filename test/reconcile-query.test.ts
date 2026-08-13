@@ -100,13 +100,15 @@ it("drops restrictive policies targeting managed groups", async () => {
         isDefault: false,
         users: [],
         groups: [group],
+        usingExpression: null,
+        checkExpression: null,
       },
     ],
   };
   const backend = new PostgresBackend({} as pg.Client);
   const context = await backend.getContext(groupEntities);
 
-  const queries = context.reconcilePermissionsQueries([group], [], groupEntities);
+  const queries = context.compileRlsQueries([group], [], groupEntities, true);
 
   assert.deepEqual(queries, [
     'DROP POLICY "select_editors" ON "test"."articles";',

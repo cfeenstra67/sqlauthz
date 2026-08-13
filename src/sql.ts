@@ -44,6 +44,8 @@ export interface SQLRowLevelSecurityPolicy {
   isDefault: boolean;
   users: SQLUser[];
   groups: SQLGroup[];
+  usingExpression: string | null;
+  checkExpression: string | null;
 }
 
 export interface SQLFunction {
@@ -242,7 +244,14 @@ export function constructFullQuery({
     );
   }
 
-  queryParts.push(...context.compileRlsQueries(permissions, entities));
+  queryParts.push(
+    ...context.compileRlsQueries(
+      revokeUsers,
+      permissions,
+      entities,
+      !!reconcile,
+    ),
+  );
   if (!reconcile) {
     queryParts.push(
       ...context.compilePrivilegeGrantQueries(permissions, entities),

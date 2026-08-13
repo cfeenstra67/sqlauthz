@@ -8,8 +8,11 @@ import {
   type Clause,
   type Literal,
   ValidationError,
+  clausesEqual,
   evaluateClause,
   isTrueClause,
+  normalizeClauseForComparison,
+  parseSqlClause,
   simpleEvaluator,
 } from "./clause.js";
 import { VERSION } from "./constants.js";
@@ -171,6 +174,8 @@ export class PostgresBackend implements SQLBackend {
         cmd: string;
         name: string;
         users: string;
+        usingExpression: string | null;
+        checkExpression: string | null;
       }>(
         `
           SELECT
@@ -179,7 +184,9 @@ export class PostgresBackend implements SQLBackend {
             policyname as "name",
             permissive,
             cmd,
-            roles as "users"
+            roles as "users",
+            qual as "usingExpression",
+            with_check as "checkExpression"
           FROM
             pg_policies
           WHERE
@@ -427,6 +434,8 @@ export class PostgresBackend implements SQLBackend {
         privileges,
         users,
         groups,
+        usingExpression: row.usingExpression,
+        checkExpression: row.checkExpression,
       });
     }
 
@@ -451,6 +460,14 @@ export class PostgresBackend implements SQLBackend {
 
   private quoteIdentifier(identifier: string): string {
     return JSON.stringify(identifier);
+  }
+
+  private normalizeIdentifier(identifier: string): string {
+    let normalized = identifier;
+    while (Buffer.byteLength(normalized) > 63) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
   }
 
   private quoteTopLevelName(schema: SQLSchema | SQLActor): string {
@@ -708,26 +725,12 @@ export class PostgresBackend implements SQLBackend {
             this.directPrivilegeQuery("GRANT", privilege),
           );
 
-        const policiesToDrop = entities.rlsPolicies.filter(
-          (policy) =>
-            policy.permissive === "RESTRICTIVE" &&
-            [...policy.users, ...policy.groups].some((actor) =>
-              actorNames.has(actor.name),
-            ),
-        );
-        const dropPolicyQueries = policiesToDrop.map(
-          (policy) =>
-            `DROP POLICY ${this.quoteIdentifier(policy.name)} ` +
-            `ON ${this.quoteQualifiedName(policy.table)};`,
-        );
-
         return revokeRoleQueries.concat(
           revokePrivilegeQueries,
-          dropPolicyQueries,
           grantPrivilegeQueries,
         );
       },
-      compileRlsQueries: (permissions, entities) => {
+      compileRlsQueries: (users, permissions, entities, reconcile) => {
         const metaByTable = Object.fromEntries(
           entities.tables.map((table) => [
             this.quoteQualifiedName(table.table),
@@ -890,14 +893,112 @@ export class PostgresBackend implements SQLBackend {
           }),
         );
 
-        const restrictivePolicyQueries = permissions.flatMap((permission) =>
-          this.compileGrantQuery(permission, entities).filter(
-            (query) => !query.startsWith("GRANT "),
-          ),
+        const restrictivePermissions = permissions.filter(
+          (permission): permission is TablePermission =>
+            permission.type === "table" &&
+            !isTrueClause(permission.rowClause) &&
+            SQLRowLevelSecurityPolicyPrivileges.includes(
+              permission.privilege as SQLRowLevelSecurityPolicyPrivilege,
+            ),
         );
+        const desiredPolicies = new Map(
+          restrictivePermissions.map((permission) => {
+            const name = [permission.privilege, permission.user.name]
+              .join("_")
+              .toLowerCase();
+            const key = JSON.stringify([
+              permission.table.schema,
+              permission.table.name,
+              this.normalizeIdentifier(name),
+            ]);
+            return [key, permission] as const;
+          }),
+        );
+        const actorNames = new Set(users.map((user) => user.name));
+        const currentPolicies = new Map(
+          entities.rlsPolicies
+            .map((policy) => {
+              const key = JSON.stringify([
+                policy.table.schema,
+                policy.table.name,
+                policy.name,
+              ]);
+              return [key, policy] as const;
+            })
+            .filter(
+              ([key, policy]) =>
+                policy.permissive === "RESTRICTIVE" &&
+                (desiredPolicies.has(key) ||
+                  [...policy.users, ...policy.groups].some((actor) =>
+                    actorNames.has(actor.name),
+                  )),
+            ),
+        );
+        const policyMatches = (
+          permission: TablePermission,
+          policy: SQLRowLevelSecurityPolicy,
+        ) => {
+          const actors = [...policy.users, ...policy.groups].map(
+            (actor) => actor.name,
+          );
+          if (
+            policy.isDefault ||
+            policy.privileges.size !== 1 ||
+            !policy.privileges.has(
+              permission.privilege as SQLRowLevelSecurityPolicyPrivilege,
+            ) ||
+            actors.length !== 1 ||
+            actors[0] !== permission.user.name
+          ) {
+            return false;
+          }
+          const desiredClause = normalizeClauseForComparison(
+            permission.rowClause,
+          );
+          const usingClause = policy.usingExpression
+            ? parseSqlClause(policy.usingExpression)
+            : null;
+          const checkClause = policy.checkExpression
+            ? parseSqlClause(policy.checkExpression)
+            : null;
+          if (permission.privilege === "INSERT") {
+            return !!checkClause && clausesEqual(desiredClause, checkClause);
+          }
+          if (permission.privilege === "UPDATE") {
+            return (
+              !!usingClause &&
+              !!checkClause &&
+              clausesEqual(desiredClause, usingClause) &&
+              clausesEqual(desiredClause, checkClause)
+            );
+          }
+          return !!usingClause && clausesEqual(desiredClause, usingClause);
+        };
+        const policiesToDrop = reconcile
+          ? Array.from(currentPolicies).filter(([key, policy]) => {
+              const permission = desiredPolicies.get(key);
+              return !permission || !policyMatches(permission, policy);
+            })
+          : [];
+        const dropPolicyQueries = policiesToDrop.map(
+          ([, policy]) =>
+            `DROP POLICY ${this.quoteIdentifier(policy.name)} ` +
+            `ON ${this.quoteQualifiedName(policy.table)};`,
+        );
+        const restrictivePolicyQueries = Array.from(desiredPolicies)
+          .filter(([key, permission]) => {
+            const policy = currentPolicies.get(key);
+            return !reconcile || !policy || !policyMatches(permission, policy);
+          })
+          .flatMap(([, permission]) =>
+            this.compileGrantQuery(permission, entities).filter(
+              (query) => !query.startsWith("GRANT "),
+            ),
+          );
 
         return enableRlsQueries.concat(
           addDefaultPolicyQueries,
+          dropPolicyQueries,
           restrictivePolicyQueries,
         );
       },
