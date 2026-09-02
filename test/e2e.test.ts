@@ -8,11 +8,16 @@ import {
   userNameGenerator,
 } from "./utils.js";
 
-for (const iterations of [1, 3]) {
+for (const [iterations, reconcile] of [
+  [1, false],
+  [3, false],
+  [1, true],
+  [3, true],
+] as const) {
   const setupEnv: typeof rawSetupEnv = (env, rules, db, vars, opts) =>
-    rawSetupEnv(env, rules, db, vars, opts, iterations);
+    rawSetupEnv(env, rules, db, vars, { ...opts, reconcile }, iterations);
 
-  describe(`${iterations}: all tests`, () => {
+  describe(`${iterations} iterations, reconcile=${reconcile}: all tests`, () => {
     for (const tests of ["basic-1", "basic-3"]) {
       describe(tests, async () => {
         const user1 = userNameGenerator();

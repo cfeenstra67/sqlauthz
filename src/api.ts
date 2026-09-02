@@ -1,7 +1,7 @@
-import { SQLBackend, SQLEntities } from "./backend.js";
-import { CreateOsoArgs, createOso } from "./oso.js";
+import type { SQLBackend, SQLEntities } from "./backend.js";
+import { type CreateOsoArgs, createOso } from "./oso.js";
 import {
-  UserRevokePolicy,
+  type UserRevokePolicy,
   deduplicatePermissions,
   getRevokeActors,
   parsePermissions,
@@ -17,6 +17,7 @@ export interface CompileQueryArgs extends Omit<CreateOsoArgs, "functions"> {
   strictFields?: boolean;
   allowAnyActor?: boolean;
   debug?: boolean;
+  reconcile?: boolean;
 }
 
 export interface CompileQuerySuccess {
@@ -42,9 +43,10 @@ export async function compileQuery({
   allowAnyActor,
   paths,
   vars,
+  reconcile,
 }: CompileQueryArgs): Promise<CompileQueryResult> {
   if (entities === undefined) {
-    entities = await backend.fetchEntities();
+    entities = await backend.fetchEntities({ reconcile });
   }
 
   const { oso, literalsContext } = await createOso({
@@ -87,6 +89,7 @@ export async function compileQuery({
     revokeUsers: actorsToRevoke.users,
     includeSetupAndTeardown,
     includeTransaction,
+    reconcile,
   });
 
   return { type: "success", query: fullQuery };

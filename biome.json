@@ -14,7 +14,7 @@
 			"style": {
 				"noNonNullAssertion": "off"
 			},
-			"nursery": {
+			"correctness": {
 				"noUnusedImports": "error"
 			}
 		}

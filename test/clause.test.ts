@@ -2,7 +2,11 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { Variable } from "oso";
 import { Expression } from "oso/dist/src/Expression.js";
-import { Clause, optimizeClause, valueToClause } from "../src/clause.js";
+import {
+  type Clause,
+  optimizeClause,
+  valueToClause,
+} from "../src/clause.js";
 
 describe(valueToClause.name, async () => {
   interface TestCase {

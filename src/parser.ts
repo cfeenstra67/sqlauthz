@@ -1,11 +1,11 @@
-import { Oso, Variable } from "oso";
-import { SQLEntities } from "./backend.js";
+import { type Oso, Variable } from "oso";
+import type { SQLEntities } from "./backend.js";
 import {
-  Clause,
-  Column,
-  EvaluateClauseArgs,
+  type Clause,
+  type Column,
+  type EvaluateClauseArgs,
   ValidationError,
-  Value,
+  type Value,
   evaluateClause,
   factorOrClauses,
   isColumn,
@@ -16,28 +16,28 @@ import {
   simpleEvaluator,
   valueToClause,
 } from "./clause.js";
-import { LiteralsContext } from "./oso.js";
+import type { LiteralsContext } from "./oso.js";
 import {
-  FunctionPermission,
+  type FunctionPermission,
   FunctionPrivileges,
-  Permission,
-  Privilege,
-  ProcedurePermission,
+  type Permission,
+  type Privilege,
+  type ProcedurePermission,
   ProcedurePrivileges,
-  SQLActor,
-  SQLFunction,
-  SQLProcedure,
-  SQLSchema,
-  SQLSequence,
-  SQLTableMetadata,
-  SQLView,
-  SchemaPermission,
+  type SQLActor,
+  type SQLFunction,
+  type SQLProcedure,
+  type SQLSchema,
+  type SQLSequence,
+  type SQLTableMetadata,
+  type SQLView,
+  type SchemaPermission,
   SchemaPrivileges,
-  SequencePermission,
+  type SequencePermission,
   SequencePrivileges,
-  TablePermission,
+  type TablePermission,
   TablePrivileges,
-  ViewPermission,
+  type ViewPermission,
   ViewPrivileges,
   formatQualifiedName,
 } from "./sql.js";

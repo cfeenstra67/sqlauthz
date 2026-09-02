@@ -1,6 +1,7 @@
-import {
+import type {
   Permission,
   SQLActor,
+  SQLDirectPrivilege,
   SQLFunction,
   SQLGroup,
   SQLProcedure,
@@ -22,6 +23,12 @@ export interface SQLEntities {
   functions: SQLFunction[];
   procedures: SQLProcedure[];
   sequences: SQLSequence[];
+  directPrivileges?: SQLDirectPrivilege[];
+  roleMemberships?: { role: string; member: string }[];
+}
+
+export interface FetchEntitiesOptions {
+  reconcile?: boolean;
 }
 
 export interface SQLBackendContext {
@@ -33,14 +40,25 @@ export interface SQLBackendContext {
     users: SQLActor[],
     entities: SQLEntities,
   ) => string[];
-  compileGrantQueries: (
+  reconcilePermissionsQueries: (
+    users: SQLActor[],
     permissions: Permission[],
     entities: SQLEntities,
+  ) => string[];
+  compilePrivilegeGrantQueries: (
+    permissions: Permission[],
+    entities: SQLEntities,
+  ) => string[];
+  compileRlsQueries: (
+    users: SQLActor[],
+    permissions: Permission[],
+    entities: SQLEntities,
+    reconcile: boolean,
   ) => string[];
 }
 
 export interface SQLBackend {
-  fetchEntities: () => Promise<SQLEntities>;
+  fetchEntities: (options?: FetchEntitiesOptions) => Promise<SQLEntities>;
 
   getContext: (entities: SQLEntities) => Promise<SQLBackendContext>;
 }
