@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.0
+
+### Minor Changes
+
+- [#7](https://github.com/cfeenstra67/sqlauthz/pull/7) [`ed2e866`](https://github.com/cfeenstra67/sqlauthz/commit/ed2e866c46d40e1e5cc9ee74ab869bf9d9f74467) Thanks [@cfeenstra67](https://github.com/cfeenstra67)! - Add incremental privilege and restrictive RLS policy reconciliation with the `--reconcile` CLI option and `reconcile` library option. Reapplying unchanged rules now produces no permission mutations, while changed direct privileges and RLS policies are updated transactionally.
+  
+  Reconciliation-only privilege and role-membership metadata is fetched only when reconciliation is enabled.
+
+### Patch Changes
+
+- [`4518b7d`](https://github.com/cfeenstra67/sqlauthz/commit/4518b7d8b29829c3af3e76465fb6557d232109a7) Thanks [@cfeenstra67](https://github.com/cfeenstra67)! - Update vulnerable dependencies
+
 ## [1.0.6] - 2024-11-19
 
 ### Fixed
