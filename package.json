@@ -9,7 +9,7 @@
     "run-ts": "tsx",
     "cli": "tsx src/cli.ts",
     "test": "find ./test -name '*.test.ts' | xargs tsx --test",
-    "check": "biome check --apply src test",
+    "check": "biome check --write src test",
     "clean": "rm -rf dist",
     "build": "pnpm clean && tsc -p tsconfig.build.json && chmod +x dist/cli.js && cp -r src/sql dist/sql",
     "changeset": "changeset",
