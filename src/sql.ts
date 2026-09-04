@@ -1,5 +1,5 @@
-import { SQLBackendContext, SQLEntities } from "./backend.js";
-import { Clause } from "./clause.js";
+import type { SQLBackendContext, SQLEntities } from "./backend.js";
+import type { Clause } from "./clause.js";
 
 export interface SQLTable {
   type: "table";
@@ -44,6 +44,8 @@ export interface SQLRowLevelSecurityPolicy {
   isDefault: boolean;
   users: SQLUser[];
   groups: SQLGroup[];
+  usingExpression: string | null;
+  checkExpression: string | null;
 }
 
 export interface SQLFunction {
@@ -171,6 +173,16 @@ export type Privilege = {
   [P in Permission as P["type"]]: P["privilege"];
 }[Permission["type"]];
 
+export interface SQLDirectPrivilege {
+  actor: string;
+  type: Permission["type"];
+  schema: string;
+  name?: string;
+  privilege: Privilege;
+  column?: string;
+  grantOption: boolean;
+}
+
 export function parseQualifiedName(tableName: string): [string, string] | null {
   const parts = tableName.split(".");
   if (parts.length !== 2) {
@@ -190,6 +202,7 @@ export interface ConstructFullQueryArgs {
   permissions: Permission[];
   includeSetupAndTeardown?: boolean;
   includeTransaction?: boolean;
+  reconcile?: boolean;
 }
 
 export function constructFullQuery({
@@ -199,6 +212,7 @@ export function constructFullQuery({
   permissions,
   includeSetupAndTeardown,
   includeTransaction,
+  reconcile,
 }: ConstructFullQueryArgs): string {
   if (includeSetupAndTeardown === undefined) {
     includeSetupAndTeardown = true;
@@ -213,23 +227,38 @@ export function constructFullQuery({
     queryParts.push(context.transactionStartQuery);
   }
 
-  if (context.setupQuery && includeSetupAndTeardown) {
+  if (context.setupQuery && includeSetupAndTeardown && !reconcile) {
     queryParts.push(context.setupQuery);
   }
 
-  if (includeSetupAndTeardown) {
-    const removeQueries = context.removeAllPermissionsFromActorsQueries(
+  if (reconcile) {
+    const reconcileQueries = context.reconcilePermissionsQueries(
       revokeUsers,
+      permissions,
       entities,
     );
-
-    queryParts.push(...removeQueries);
+    queryParts.push(...reconcileQueries);
+  } else if (includeSetupAndTeardown) {
+    queryParts.push(
+      ...context.removeAllPermissionsFromActorsQueries(revokeUsers, entities),
+    );
   }
 
-  const grantQueries = context.compileGrantQueries(permissions, entities);
-  queryParts.push(...grantQueries);
+  queryParts.push(
+    ...context.compileRlsQueries(
+      revokeUsers,
+      permissions,
+      entities,
+      !!reconcile,
+    ),
+  );
+  if (!reconcile) {
+    queryParts.push(
+      ...context.compilePrivilegeGrantQueries(permissions, entities),
+    );
+  }
 
-  if (context.teardownQuery && includeSetupAndTeardown) {
+  if (context.teardownQuery && includeSetupAndTeardown && !reconcile) {
     queryParts.push(context.teardownQuery);
   }
   if (context.transactionCommitQuery && includeTransaction) {

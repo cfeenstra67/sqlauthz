@@ -2,7 +2,7 @@ import { Variable } from "oso";
 import { Expression } from "oso/dist/src/Expression.js";
 import { Pattern } from "oso/dist/src/Pattern.js";
 import { Predicate } from "oso/dist/src/Predicate.js";
-import { PolarOperator } from "oso/dist/src/types.js";
+import type { PolarOperator } from "oso/dist/src/types.js";
 import { arrayProduct } from "./utils.js";
 
 export interface Literal {
@@ -125,7 +125,7 @@ export function mapClauses(
   return func(clause);
 }
 
-function clausesEqual(clause1: Clause, clause2: Clause): boolean {
+export function clausesEqual(clause1: Clause, clause2: Clause): boolean {
   if (clause1.type !== clause2.type) {
     return false;
   }
@@ -144,11 +144,19 @@ function clausesEqual(clause1: Clause, clause2: Clause): boolean {
     return clausesEqual(clause1.clause, clause2.clause);
   }
   if (clause1.type === "expression" && clause2.type === "expression") {
-    return (
+    const sameOrder =
       clause1.operator === clause2.operator &&
       clause1.values.every((value, idx) =>
         clausesEqual(value, clause2.values[idx]!),
-      )
+      );
+    if (sameOrder) {
+      return true;
+    }
+    return (
+      (clause1.operator === "Eq" || clause1.operator === "Neq") &&
+      clause1.operator === clause2.operator &&
+      clausesEqual(clause1.values[0], clause2.values[1]) &&
+      clausesEqual(clause1.values[1], clause2.values[0])
     );
   }
   if (
@@ -162,7 +170,9 @@ function clausesEqual(clause1: Clause, clause2: Clause): boolean {
       clause1.name === clause2.name &&
       clause1.schema === clause2.schema &&
       clause1.args.length === clause2.args.length &&
-      clause1.args.every((arg, idx) => arg === clause2.args[idx])
+      clause1.args.every((arg, idx) =>
+        clausesEqual(arg, clause2.args[idx]!),
+      )
     );
   }
   return false;
